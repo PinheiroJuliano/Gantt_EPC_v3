@@ -153,7 +153,7 @@ function applyTheme(theme) {
   localStorage.setItem(STORE_THEME, theme);
   const btn = document.getElementById('btnTheme');
   if (btn) {
-    btn.textContent = theme === 'dark' ? '☀' : '☾';
+    btn.textContent = theme === 'dark' ? '☀' : '◯';
     btn.title = theme === 'dark' ? 'Usar modo claro' : 'Usar modo escuro';
     btn.setAttribute('aria-label', btn.title);
   }
