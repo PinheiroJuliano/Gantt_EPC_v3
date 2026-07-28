@@ -118,18 +118,6 @@
                 </tr>
             </tbody>
         </table>
-        <section class="history-panel" id="sprintHistory">
-            <div class="history-header">
-                <div>
-                    <h2 class="history-title">Histórico</h2>
-                    <p class="history-subtitle" id="historySubtitle">Demandas concluídas nas sprints exibidas</p>
-                </div>
-                <span class="history-count" id="historyCount">0 concluídas</span>
-            </div>
-            <div class="history-list" id="historyList">
-                <p class="history-empty">Nenhuma issue concluída nas milestones exibidas.</p>
-            </div>
-        </section>
     </div>
 
     <!-- ISSUES VIEW -->
@@ -158,6 +146,18 @@
                 </tr>
             </tbody>
         </table>
+        <section class="history-panel" id="sprintHistory" style="display:none">
+            <div class="history-header">
+                <div>
+                    <h2 class="history-title">Histórico</h2>
+                    <p class="history-subtitle" id="historySubtitle">Demandas concluídas desta sprint</p>
+                </div>
+                <span class="history-count" id="historyCount">0 concluídas</span>
+            </div>
+            <div class="history-list" id="historyList">
+                <p class="history-empty">Nenhuma issue concluída nesta sprint.</p>
+            </div>
+        </section>
     </div>
 
     <!-- =============================================

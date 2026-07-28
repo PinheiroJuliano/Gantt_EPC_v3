@@ -762,7 +762,7 @@ window.switchView = function(view) {
     macroWrap.style.display=''; issuesWrap.style.display='none';
     macroTb.style.display='';  issueTb.style.display='none';
     breadcrumb.style.display='none'; btnMs.style.display='';
-    if (history) history.style.display='';
+    if (history) history.style.display='none';
     fabMacro.classList.add('active'); fabIssues.classList.remove('active');
     renderMacro();
   } else if (view === 'issues') {
@@ -783,13 +783,14 @@ window.enterDrill = function(msId) {
   document.getElementById('issuesWrap').style.display='';
   document.getElementById('macroToolbar').style.display='none';
   document.getElementById('issueToolbar').style.display='';
-  document.getElementById('sprintHistory').style.display='none';
+  document.getElementById('sprintHistory').style.display='';
   document.getElementById('breadcrumb').style.display='flex';
   document.getElementById('breadcrumbLabel').textContent = ms.name;
   document.getElementById('btnMilestones').style.display='none';
   document.getElementById('fabMacro').classList.remove('active');
   document.getElementById('fabIssues').classList.remove('active');
   render();
+  renderSprintHistory(ms);
 };
 
 window.exitDrill = function() { switchView('macro'); };
@@ -1071,6 +1072,10 @@ function render() {
   renderSummary(issues);
   buildTimeline('filterFrom','filterTo','tlHeader');
   renderRows(issues);
+  if (currentView === 'drill' && drillMsId) {
+    const ms = internalMilestones.find(m => m.id === drillMsId);
+    renderSprintHistory(ms);
+  }
 }
 
 function renderSummary(issues) {
@@ -1231,7 +1236,6 @@ function renderMacro() {
   const countEl = document.getElementById('macroCount');
   if (countEl) countEl.textContent = `${mss.length} milestones`;
   renderSummaryMacro(mss);
-  renderSprintHistory(mss);
   const body = document.getElementById('macroBody');
   if (!mss.length) {
     body.innerHTML='<tr><td colspan="7" class="no-data">Nenhuma milestone cadastrada. Clique em ⊞ Milestones.</td></tr>'; return;
@@ -1287,7 +1291,7 @@ function getCompletedIssuesForMilestone(ms) {
     );
 }
 
-function renderSprintHistory(mss) {
+function renderSprintHistory(ms) {
   const panel = document.getElementById('sprintHistory');
   const list  = document.getElementById('historyList');
   const count = document.getElementById('historyCount');
@@ -1295,25 +1299,23 @@ function renderSprintHistory(mss) {
   if (!panel || !list) return;
 
   const rows = [];
-  mss.forEach(ms => {
-    if (ms.history?.trim()) {
-      rows.push({
-        type: 'note',
-        ms,
-        text: ms.history.trim(),
-      });
-    }
-    getCompletedIssuesForMilestone(ms).forEach(issue => rows.push({ type: 'issue', ms, issue }));
-  });
+  if (ms?.history?.trim()) {
+    rows.push({
+      type: 'note',
+      ms,
+      text: ms.history.trim(),
+    });
+  }
+  if (ms) getCompletedIssuesForMilestone(ms).forEach(issue => rows.push({ type: 'issue', ms, issue }));
 
   const issueCount = rows.filter(row => row.type === 'issue').length;
   if (count) count.textContent = `${issueCount} concluída${issueCount === 1 ? '' : 's'}`;
-  if (subtitle) subtitle.textContent = mss.length
-    ? 'Demandas concluídas nas sprints exibidas'
-    : 'Demandas concluídas da sprint';
+  if (subtitle) subtitle.textContent = ms
+    ? `Demandas concluídas em ${ms.name}`
+    : 'Demandas concluídas desta sprint';
 
   if (!rows.length) {
-    list.innerHTML = '<p class="history-empty">Nenhuma issue concluída nas milestones exibidas.</p>';
+    list.innerHTML = '<p class="history-empty">Nenhuma issue concluída nesta sprint.</p>';
     return;
   }
 
@@ -1335,7 +1337,7 @@ function renderSprintHistory(mss) {
       <span class="history-iid">#${issue.iid}</span>
       <div class="history-main">
         ${title}
-        <span class="history-meta">${esc(row.ms.name)}${doneAt ? ` · concluída em ${doneAt}` : ''}</span>
+        <span class="history-meta">${doneAt ? `Concluída em ${doneAt}` : 'Concluída'}</span>
       </div>
     </div>`;
   }).join('');
