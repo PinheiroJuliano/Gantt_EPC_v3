@@ -16,7 +16,7 @@
 
     <header>
         <div class="header-left">
-            <h1>▦ Gantt Chart - GitLab</h1>
+            <h1>Gantt Chart - GitLab</h1>
             <span class="ms-pill" id="msBadge">—</span>
             <!-- SELETOR DE PROJETOS -->
             <div class="proj-selector" id="projectSelectorWrap"></div>
@@ -30,7 +30,7 @@
         <div class="header-right">
             <span id="saveIndicator" style="font-size:10px;color:var(--text3)"></span>
             <button class="btn" id="btnReload" onclick="loadFromAPI()" style="display:none">↺ Recarregar</button>
-            <button class="btn btn-icon" id="btnTheme" onclick="toggleTheme()" title="Alternar tema">◐</button>
+            <button class="btn btn-icon" id="btnTheme" onclick="toggleTheme()" title="Alternar tema">◯</button>
             <button class="btn btn-icon" id="btnConfig" onclick="openCfgModal()" title="Configurações">⚙</button>
             <button class="btn" id="btnMilestones" onclick="openMsModal()">⊞ Milestones</button>
             <!-- USER WIDGET -->
@@ -306,9 +306,8 @@
 
     <!-- VIEW SWITCHER (FAB) -->
     <div class="view-fab" id="viewFab">
-        <button class="fab-btn active" id="fabMacro" onclick="switchView('macro')" title="Visão macro (milestones)">⊟
-            Macro</button>
-        <button class="fab-btn" id="fabIssues" onclick="switchView('issues')" title="Visão de issues">≡ Issues</button>
+        <button class="fab-btn active" id="fabMacro" onclick="switchView('macro')" title="Visão macro (milestones)">Macro</button>
+        <button class="fab-btn" id="fabIssues" onclick="switchView('issues')" title="Visão de issues">Issues</button>
     </div>
 
     <!-- =============================================
