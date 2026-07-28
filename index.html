@@ -30,6 +30,7 @@
         <div class="header-right">
             <span id="saveIndicator" style="font-size:10px;color:var(--text3)"></span>
             <button class="btn" id="btnReload" onclick="loadFromAPI()" style="display:none">↺ Recarregar</button>
+            <button class="btn btn-icon" id="btnTheme" onclick="toggleTheme()" title="Alternar tema">◐</button>
             <button class="btn btn-icon" id="btnConfig" onclick="openCfgModal()" title="Configurações">⚙</button>
             <button class="btn" id="btnMilestones" onclick="openMsModal()">⊞ Milestones</button>
             <!-- USER WIDGET -->
@@ -117,6 +118,18 @@
                 </tr>
             </tbody>
         </table>
+        <section class="history-panel" id="sprintHistory">
+            <div class="history-header">
+                <div>
+                    <h2 class="history-title">Histórico</h2>
+                    <p class="history-subtitle" id="historySubtitle">Demandas concluídas nas sprints exibidas</p>
+                </div>
+                <span class="history-count" id="historyCount">0 concluídas</span>
+            </div>
+            <div class="history-list" id="historyList">
+                <p class="history-empty">Nenhuma issue concluída nas milestones exibidas.</p>
+            </div>
+        </section>
     </div>
 
     <!-- ISSUES VIEW -->
@@ -214,6 +227,11 @@
                 <div class="issue-picker" id="issuePicker">
                     <p class="picker-empty">Carregue as issues da API primeiro (botão ▶ Carregar).</p>
                 </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Histórico</label>
+                <textarea id="msHistory" class="form-textarea" rows="4"
+                    placeholder="Resumo do que foi feito e finalizado nesta sprint"></textarea>
             </div>
             <div class="form-actions">
                 <button class="btn" onclick="closeMsFormModal()">Cancelar</button>

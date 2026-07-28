@@ -5,6 +5,7 @@ const STORE_CFG       = 'gantt_cfg_v2';
 const STORE_PROG      = 'gantt_prog_v2';
 const STORE_PROJECTS  = 'gantt_projects_v1';
 const STORE_ACTIVE    = 'gantt_active_project_v1';
+const STORE_THEME     = 'gantt_theme_v1';
 const ADMIN_EMAIL     = 'pisjuliano@gmail.com';
 
 const TODAY = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
@@ -132,9 +133,35 @@ function projectDocId() {
 /* ─── AUTH ─────────────────────────────────────────────────────────────────── */
 
 /* Mostra/oculta as telas principais do app */
-function showAppUI()     { document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');   document.getElementById('pendingScreen')?.style && (document.getElementById('pendingScreen').style.display = 'none'); }
-function showLoginUI()   { document.getElementById('loginScreen').style.display = '';  document.getElementById('pendingScreen').style.display = 'none'; }
-function showPendingUI() { document.getElementById('loginScreen').style.display = 'none'; document.getElementById('pendingScreen').style.display = ''; }
+function showAppUI()     { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');   document.getElementById('pendingScreen')?.style && (document.getElementById('pendingScreen').style.display = 'none'); }
+function showLoginUI()   { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen').style.display = '';  document.getElementById('pendingScreen').style.display = 'none'; }
+function showPendingUI() { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen').style.display = 'none'; document.getElementById('pendingScreen').style.display = ''; }
+function showAuthCheckingUI() {
+  document.body.classList.add('auth-checking');
+  document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');
+  document.getElementById('pendingScreen')?.style && (document.getElementById('pendingScreen').style.display = 'none');
+}
+
+/* ─── THEME ──────────────────────────────────────────────────────────────── */
+function getPreferredTheme() {
+  const saved = localStorage.getItem(STORE_THEME);
+  if (saved === 'dark' || saved === 'light') return saved;
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(STORE_THEME, theme);
+  const btn = document.getElementById('btnTheme');
+  if (btn) {
+    btn.textContent = theme === 'dark' ? '☀' : '☾';
+    btn.title = theme === 'dark' ? 'Usar modo claro' : 'Usar modo escuro';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+window.toggleTheme = function() {
+  const current = document.documentElement.dataset.theme || getPreferredTheme();
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+};
 
 /* Alterna entre as abas Entrar / Cadastrar-se */
 window.switchLoginTab = function(tab) {
@@ -730,16 +757,19 @@ window.switchView = function(view) {
   const btnMs      = document.getElementById('btnMilestones');
   const fabMacro   = document.getElementById('fabMacro');
   const fabIssues  = document.getElementById('fabIssues');
+  const history    = document.getElementById('sprintHistory');
   if (view === 'macro') {
     macroWrap.style.display=''; issuesWrap.style.display='none';
     macroTb.style.display='';  issueTb.style.display='none';
     breadcrumb.style.display='none'; btnMs.style.display='';
+    if (history) history.style.display='';
     fabMacro.classList.add('active'); fabIssues.classList.remove('active');
     renderMacro();
   } else if (view === 'issues') {
     macroWrap.style.display='none'; issuesWrap.style.display='';
     macroTb.style.display='none';  issueTb.style.display='';
     breadcrumb.style.display='none'; btnMs.style.display='';
+    if (history) history.style.display='none';
     fabMacro.classList.remove('active'); fabIssues.classList.add('active');
     render();
   }
@@ -753,6 +783,7 @@ window.enterDrill = function(msId) {
   document.getElementById('issuesWrap').style.display='';
   document.getElementById('macroToolbar').style.display='none';
   document.getElementById('issueToolbar').style.display='';
+  document.getElementById('sprintHistory').style.display='none';
   document.getElementById('breadcrumb').style.display='flex';
   document.getElementById('breadcrumbLabel').textContent = ms.name;
   document.getElementById('btnMilestones').style.display='none';
@@ -821,8 +852,7 @@ async function loadFromAPI() {
   }
   setApiStatus('⏳ Carregando...', 'loading');
   try {
-    const stateFilter   = document.getElementById('filterState').value || 'opened';
-    const params        = new URLSearchParams({ state: stateFilter, per_page: '100' });
+    const params        = new URLSearchParams({ state: 'all', per_page: '100' });
     if (cfg.milestone)  params.append('milestone', cfg.milestone);
     const ignoredLabels = ['Ready', 'Specification'];
     if (ignoredLabels.length) params.append('not[labels]', ignoredLabels.join(','));
@@ -925,8 +955,10 @@ function applyFilters() {
   const from   = document.getElementById('filterFrom').value;
   const to     = document.getElementById('filterTo').value;
   const status = document.getElementById('filterStatus').value;
+  const state  = document.getElementById('filterState').value;
   const search = document.getElementById('filterSearch').value.toLowerCase();
   return issues.filter(i => {
+    if (state && i.state !== state) return false;
     if (status && effectiveStatus(i) !== status) return false;
     if (search && !String(i.iid).includes(search) && !i.title.toLowerCase().includes(search)) return false;
     if (from && i.end   && i.end   < from) return false;
@@ -1199,6 +1231,7 @@ function renderMacro() {
   const countEl = document.getElementById('macroCount');
   if (countEl) countEl.textContent = `${mss.length} milestones`;
   renderSummaryMacro(mss);
+  renderSprintHistory(mss);
   const body = document.getElementById('macroBody');
   if (!mss.length) {
     body.innerHTML='<tr><td colspan="7" class="no-data">Nenhuma milestone cadastrada. Clique em ⊞ Milestones.</td></tr>'; return;
@@ -1236,6 +1269,75 @@ function renderMacro() {
       </td>
       <td class="bar-cell-td"><div class="bar-outer">${barHTML}</div></td>
     </tr>`;
+  }).join('');
+}
+
+function getIssuesForMilestone(ms) {
+  const iids = new Set((ms.issueIids || []).map(Number));
+  return allIssues.filter(issue => iids.has(Number(issue.iid)));
+}
+
+function getCompletedIssuesForMilestone(ms) {
+  return getIssuesForMilestone(ms)
+    .filter(issue => effectiveStatus(issue) === 'Concluída')
+    .sort((a,b) =>
+      (progress[b.iid]?.updatedAt || '').localeCompare(progress[a.iid]?.updatedAt || '') ||
+      (b.end || '').localeCompare(a.end || '') ||
+      Number(b.iid) - Number(a.iid)
+    );
+}
+
+function renderSprintHistory(mss) {
+  const panel = document.getElementById('sprintHistory');
+  const list  = document.getElementById('historyList');
+  const count = document.getElementById('historyCount');
+  const subtitle = document.getElementById('historySubtitle');
+  if (!panel || !list) return;
+
+  const rows = [];
+  mss.forEach(ms => {
+    if (ms.history?.trim()) {
+      rows.push({
+        type: 'note',
+        ms,
+        text: ms.history.trim(),
+      });
+    }
+    getCompletedIssuesForMilestone(ms).forEach(issue => rows.push({ type: 'issue', ms, issue }));
+  });
+
+  const issueCount = rows.filter(row => row.type === 'issue').length;
+  if (count) count.textContent = `${issueCount} concluída${issueCount === 1 ? '' : 's'}`;
+  if (subtitle) subtitle.textContent = mss.length
+    ? 'Demandas concluídas nas sprints exibidas'
+    : 'Demandas concluídas da sprint';
+
+  if (!rows.length) {
+    list.innerHTML = '<p class="history-empty">Nenhuma issue concluída nas milestones exibidas.</p>';
+    return;
+  }
+
+  list.innerHTML = rows.map(row => {
+    if (row.type === 'note') {
+      return `<div class="history-note">
+        <span class="history-ms">${esc(row.ms.name)}</span>
+        <p>${esc(row.text).replace(/\n/g, '<br>')}</p>
+      </div>`;
+    }
+    const issue = row.issue;
+    const doneAt = progress[issue.iid]?.updatedAt
+      ? new Date(progress[issue.iid].updatedAt).toLocaleDateString('pt-BR')
+      : '';
+    const title = issue.url
+      ? `<a href="${esc(issue.url)}" target="_blank">${esc(issue.title)}</a>`
+      : `<span>${esc(issue.title)}</span>`;
+    return `<div class="history-item">
+      <span class="history-iid">#${issue.iid}</span>
+      <div class="history-main">
+        ${title}
+        <span class="history-meta">${esc(row.ms.name)}${doneAt ? ` · concluída em ${doneAt}` : ''}</span>
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -1421,6 +1523,7 @@ window.openMsFormModal = function(id) {
     document.getElementById('msEnd').value    = ms.end||'';
     document.getElementById('msColor').value  = ms.color||'#2e6fcc';
     document.getElementById('msStatus').value = ms.status||'Não iniciada';
+    document.getElementById('msHistory').value = ms.history||'';
     selectedIssueIids = new Set((ms.issueIids||[]).map(Number));
     document.getElementById('msFormTitle').textContent='Editar Milestone';
   } else {
@@ -1445,6 +1548,7 @@ function clearMsForm() {
   document.getElementById('msName').value=''; document.getElementById('msStart').value='';
   document.getElementById('msEnd').value=''; document.getElementById('msColor').value='#2e6fcc';
   document.getElementById('msStatus').value='Não iniciada';
+  document.getElementById('msHistory').value='';
   selectedIssueIids=new Set(); updatePickerCount(); populateIssuePicker();
 }
 function renderMsList() {
@@ -1481,6 +1585,7 @@ window.saveMilestone = function() {
   const end    = document.getElementById('msEnd').value;
   const color  = document.getElementById('msColor').value;
   const status = document.getElementById('msStatus').value;
+  const history = document.getElementById('msHistory').value.trim();
   if (!name)      { alert('Informe o nome da milestone.'); return; }
   if (!start)     { alert('Informe a data de início.'); return; }
   if (!end)       { alert('Informe a data de fim.'); return; }
@@ -1488,10 +1593,10 @@ window.saveMilestone = function() {
   const issueIids = [...selectedIssueIids];
   if (editingMsId) {
     const idx = internalMilestones.findIndex(m=>m.id===editingMsId);
-    if (idx!==-1) internalMilestones[idx]={...internalMilestones[idx],name,start,end,color,status,issueIids};
+    if (idx!==-1) internalMilestones[idx]={...internalMilestones[idx],name,start,end,color,status,issueIids,history};
   } else {
     const id='ms_'+Date.now();
-    internalMilestones.push({id,name,start,end,color,status,issueIids,projectId:activeProjectId});
+    internalMilestones.push({id,name,start,end,color,status,issueIids,history,projectId:activeProjectId});
   }
   // Atualiza flag projectId + internalMilestoneId nas issues vinculadas
   issueIids.forEach(iid => {
@@ -1766,7 +1871,7 @@ function setupFilterListeners() {
     const el=document.getElementById(id); if(el) el.addEventListener('input',render);
   });
   const fState=document.getElementById('filterState');
-  if (fState) fState.addEventListener('change',()=>{ if(allIssues.length) loadFromAPI(); });
+  if (fState) fState.addEventListener('change',render);
   ['macroFrom','macroTo','macroSearch'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.addEventListener('input',renderMacro);
   });
@@ -1790,8 +1895,8 @@ async function inicializarApp() {
 
   initFirebase(globalFirebaseCfg);
 
-  // 2) Exibe a tela de login enquanto aguarda a verificação de sessão
-  showLoginUI();
+  // 2) Aguarda o Firebase restaurar a sessão antes de decidir qual tela exibir
+  showAuthCheckingUI();
 
   // 3) Observa mudanças de autenticação — Firebase mantém a sessão automaticamente
   firebase.auth().onAuthStateChanged(async (user) => {
@@ -1862,5 +1967,6 @@ document.addEventListener('keydown', (e) => {
   if (registerVisible) window.doRegister();
 });
 
+applyTheme(getPreferredTheme());
 inicializarApp();
 
