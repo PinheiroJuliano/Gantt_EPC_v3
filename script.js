@@ -7,6 +7,7 @@ const STORE_PROJECTS  = 'gantt_projects_v1';
 const STORE_ACTIVE    = 'gantt_active_project_v1';
 const STORE_THEME     = 'gantt_theme_v1';
 const ADMIN_EMAIL     = 'pisjuliano@gmail.com';
+const MODULE_EXTERNAL  = 'external';
 
 const TODAY = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
 
@@ -40,7 +41,7 @@ const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('extern
 
 /* Auth state */
 let currentUser  = null;  // firebase.User
-let userProfile  = null;  // { role, allowedProjects, displayName }
+let userProfile  = null;  // { role, allowedProjects, allowedModules, displayName }
 
 /* ─── MULTI-PROJECT STATE ────────────────────────────────────────────────── */
 /*
@@ -136,10 +137,24 @@ function projectDocId() {
 
 /* ─── AUTH ─────────────────────────────────────────────────────────────────── */
 
+const DEFAULT_PENDING_TITLE = 'Cadastro recebido!';
+const DEFAULT_PENDING_MSG = 'Seu acesso ainda não foi liberado. Um administrador irá analisar seu cadastro e configurar quais projetos você poderá visualizar.\n\nPor favor, tente novamente mais tarde.';
+
 /* Mostra/oculta as telas principais do app */
 function showAppUI()     { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');   document.getElementById('pendingScreen')?.style && (document.getElementById('pendingScreen').style.display = 'none'); }
 function showLoginUI()   { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen').style.display = '';  document.getElementById('pendingScreen').style.display = 'none'; }
-function showPendingUI() { document.body.classList.remove('auth-checking'); document.getElementById('loginScreen').style.display = 'none'; document.getElementById('pendingScreen').style.display = ''; }
+function showPendingUI(options = {}) {
+  document.body.classList.remove('auth-checking');
+  const pending = document.getElementById('pendingScreen');
+  const title = pending?.querySelector('.pending-title');
+  const msg = pending?.querySelector('.pending-msg');
+  const icon = pending?.querySelector('.pending-icon');
+  if (icon) icon.textContent = options.icon || '⏳';
+  if (title) title.textContent = options.title || DEFAULT_PENDING_TITLE;
+  if (msg) msg.innerHTML = (options.message || DEFAULT_PENDING_MSG).replace(/\n/g, '<br>');
+  document.getElementById('loginScreen').style.display = 'none';
+  pending.style.display = '';
+}
 function showAuthCheckingUI() {
   document.body.classList.add('auth-checking');
   document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');
@@ -216,6 +231,7 @@ async function createUserProfile(user, displayName) {
       email,
       role,
       allowedProjects: [],
+      allowedModules: [],
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     console.log('Perfil criado:', email, '| role:', role);
@@ -233,8 +249,16 @@ async function loadUserProfile(user) {
     // Documento ainda não existe (primeiro login via link externo ou admin criou direto no Auth)
     // Cria automaticamente como 'pending'
     await createUserProfile(user, user.displayName || '');
-    return { role: 'pending', allowedProjects: [], displayName: user.email.split('@')[0] };
+    return { role: 'pending', allowedProjects: [], allowedModules: [], displayName: user.email.split('@')[0] };
   } catch(e) { console.error('Erro ao carregar perfil:', e); return null; }
+}
+
+function hasExternalAccess(profile) {
+  if (!profile) return false;
+  if (profile.role === 'admin') return true;
+  return profile.role === 'user' &&
+    Array.isArray(profile.allowedModules) &&
+    profile.allowedModules.includes(MODULE_EXTERNAL);
 }
 
 /* Filtra a lista global de projetos pelas permissões do usuário */
@@ -480,6 +504,8 @@ function adminUserCardHTML(u, type) {
   const letter   = (u.displayName || u.email).charAt(0).toUpperCase();
   const projCount = Array.isArray(u.allowedProjects) ? u.allowedProjects.length : 0;
   const projLabel = projCount === 0 ? 'Sem projetos atribuídos' : `${projCount} projeto(s) atribuído(s)`;
+  const modules = Array.isArray(u.allowedModules) ? u.allowedModules : [];
+  const externalLabel = modules.includes(MODULE_EXTERNAL) ? 'Visão externa liberada' : 'Visão externa bloqueada';
   const emailAttr = escAttr(u.email);
 
   const actions = type === 'pending'
@@ -494,7 +520,7 @@ function adminUserCardHTML(u, type) {
       <div class="admin-user-info">
         <span class="admin-user-name">${u.displayName || '—'}</span>
         <span class="admin-user-email">${u.email}</span>
-        ${type === 'user' ? `<span class="admin-user-projs">${projLabel}</span>` : ''}
+        ${type === 'user' ? `<span class="admin-user-projs">${projLabel} · ${externalLabel}</span>` : ''}
       </div>
       <div class="admin-user-actions">${actions}</div>
     </div>`;
@@ -512,7 +538,7 @@ document.addEventListener('click', (e) => {
     case 'approve':  window.approveUser(email); break;
     case 'reject':   window.rejectUser(email); break;
     case 'revoke':   window.revokeUser(email); break;
-    case 'projects': window.openUserProjectsPanel(email, user?.allowedProjects || []); break;
+    case 'projects': window.openUserProjectsPanel(email); break;
   }
 });
 
@@ -538,19 +564,22 @@ window.rejectUser = async function(email) {
   } catch(e) { console.error('Erro ao recusar usuário:', e); alert('Erro ao recusar usuário.'); }
 };
 
-/* Revoga o acesso de um usuário: role user → pending + limpa projetos */
+/* Revoga o acesso de um usuário: role user → pending + limpa projetos/módulos */
 window.revokeUser = async function(email) {
   if (!confirm(`Revogar acesso de ${email}?`)) return;
   try {
     await db.collection('gantt').doc('users').collection('items').doc(email)
-      .update({ role: 'pending', allowedProjects: [] });
+      .update({ role: 'pending', allowedProjects: [], allowedModules: [] });
     window.openAdminUsersModal();
   } catch(e) { console.error('Erro ao revogar acesso:', e); alert('Erro ao revogar acesso.'); }
 };
 
-/* Abre o sub-painel de atribuição de projetos */
-window.openUserProjectsPanel = function(email, currentProjects) {
+/* Abre o sub-painel de atribuição de projetos e módulos */
+window.openUserProjectsPanel = function(email) {
   _adminProjectsTargetEmail = email;
+  const targetUser = _adminUsersCache[email] || {};
+  const currentProjects = Array.isArray(targetUser.allowedProjects) ? targetUser.allowedProjects : [];
+  const currentModules = Array.isArray(targetUser.allowedModules) ? targetUser.allowedModules : [];
   const panel  = document.getElementById('adminProjectsPanel');
   const title  = document.getElementById('adminProjPanelUser');
   const listEl = document.getElementById('adminProjCheckboxes');
@@ -559,20 +588,33 @@ window.openUserProjectsPanel = function(email, currentProjects) {
   panel.style.display = '';
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  if (!projects.length) {
-    listEl.innerHTML = '<p class="modal-empty">Nenhum projeto cadastrado no sistema.</p>';
-    return;
-  }
+  const externalChecked = currentModules.includes(MODULE_EXTERNAL);
+  const moduleHTML = `
+    <label class="admin-proj-row${externalChecked ? ' selected' : ''}" id="modrow-${MODULE_EXTERNAL}">
+      <input type="checkbox" value="${MODULE_EXTERNAL}" data-kind="module" ${externalChecked ? 'checked' : ''}
+        onchange="toggleProjRow(this)" />
+      <span class="admin-proj-row-name">Visão externa</span>
+    </label>`;
 
-  listEl.innerHTML = projects.map(p => {
+  const projectsHTML = projects.length ? projects.map(p => {
     const checked  = currentProjects.includes(p.id);
     return `
       <label class="admin-proj-row${checked ? ' selected' : ''}" id="projrow-${p.id}">
-        <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''}
+        <input type="checkbox" value="${p.id}" data-kind="project" ${checked ? 'checked' : ''}
           onchange="toggleProjRow(this)" />
         <span class="admin-proj-row-name">${p.name}</span>
       </label>`;
-  }).join('');
+  }).join('') : '<p class="modal-empty">Nenhum projeto cadastrado no sistema.</p>';
+
+  listEl.innerHTML = `
+    <div class="admin-proj-group">
+      <div class="admin-proj-group-title">Módulos</div>
+      ${moduleHTML}
+    </div>
+    <div class="admin-proj-group">
+      <div class="admin-proj-group-title">Projetos</div>
+      ${projectsHTML}
+    </div>`;
 };
 
 /* Atualiza o visual do checkbox ao marcar/desmarcar */
@@ -586,24 +628,29 @@ window.closeProjectsPanel = function() {
   _adminProjectsTargetEmail = null;
 };
 
-/* Salva os projetos atribuídos ao usuário no Firestore */
+/* Salva os projetos e módulos atribuídos ao usuário no Firestore */
 window.saveUserProjects = async function() {
   if (!_adminProjectsTargetEmail) return;
-  const checkboxes  = document.querySelectorAll('#adminProjCheckboxes input[type="checkbox"]');
-  const selectedIds = Array.from(checkboxes).filter(c => c.checked).map(c => c.value);
+  const checkboxes  = Array.from(document.querySelectorAll('#adminProjCheckboxes input[type="checkbox"]'));
+  const selectedIds = checkboxes
+    .filter(c => c.dataset.kind === 'project' && c.checked)
+    .map(c => c.value);
+  const selectedModules = checkboxes
+    .filter(c => c.dataset.kind === 'module' && c.checked)
+    .map(c => c.value);
   const btn         = document.getElementById('btnSaveProjects');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
   try {
     await db.collection('gantt').doc('users').collection('items')
       .doc(_adminProjectsTargetEmail)
-      .update({ allowedProjects: selectedIds });
+      .update({ allowedProjects: selectedIds, allowedModules: selectedModules });
     closeProjectsPanel();
-    window.openAdminUsersModal(); // atualiza o contador de projetos
+    window.openAdminUsersModal(); // atualiza contador e módulos
   } catch(e) {
-    console.error('Erro ao salvar projetos:', e);
-    alert('Erro ao salvar projetos.');
+    console.error('Erro ao salvar permissões:', e);
+    alert('Erro ao salvar permissões.');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '✓ Salvar projetos'; }
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Salvar permissões'; }
   }
 };
 
@@ -2079,40 +2126,86 @@ async function loadExternalIssues(cfg) {
 }
 
 async function inicializarModoExterno() {
-  showExternalUI();
-  loadProjectsLocal();
-  loadProgress();
-  loadMilestonesLocal();
-
   const publicCfg = await loadExternalConfigFile();
   const fCfg = (publicCfg?.firebaseConfig?.apiKey && publicCfg.firebaseConfig.apiKey !== 'SUA_API_KEY')
     ? publicCfg.firebaseConfig
     : null;
   initFirebase(fCfg);
 
-  if (db) {
-    await loadProjectsFromCloud();
+  showAuthCheckingUI();
+
+  if (!firebase.apps.length) {
+    showPendingUI({
+      icon: '!',
+      title: 'Configuração indisponível',
+      message: 'Não foi possível validar seu acesso ao módulo externo.\n\nConfira a configuração do Firebase antes de liberar essa visão.'
+    });
+    return;
+  }
+
+  firebase.auth().onAuthStateChanged(async (user) => {
+    if (!user) {
+      showLoginUI();
+      document.getElementById('userWidget').style.display = 'none';
+      return;
+    }
+
+    currentUser = user;
+    userProfile = await loadUserProfile(user);
+    updateUserWidget(user, userProfile);
+
+    if (!userProfile || userProfile.role === 'pending') {
+      showPendingUI();
+      return;
+    }
+
+    if (!hasExternalAccess(userProfile)) {
+      showPendingUI({
+        icon: '🔒',
+        title: 'Módulo não liberado',
+        message: 'Seu usuário já está aprovado, mas a Visão externa ainda não foi liberada para você.\n\nPeça para um administrador marcar o módulo nas suas permissões.'
+      });
+      return;
+    }
+
+    showExternalUI();
+    loadProjectsLocal();
+    loadProgress();
+    loadMilestonesLocal();
+
+    const gotFromCloud = await loadProjectsFromCloud();
+    if (!gotFromCloud && projects.length) await saveProjectsToCloud();
+
+    applyUserPermissions(userProfile);
+
+    const cfgBase = { ...DEFAULT_CFG, ...publicCfg };
+    if (userProfile.role === 'admin' && !projects.length && cfgBase.token) {
+      projects = [{
+        id: 'proj_external',
+        name: cfgBase.milestone || 'Projeto',
+        token: cfgBase.token,
+        url: cfgBase.url,
+        group: cfgBase.group,
+        milestone: cfgBase.milestone,
+        firebaseConfig: fCfg,
+      }];
+      activeProjectId = 'proj_external';
+    }
+
     if (!activeProjectId && projects.length) activeProjectId = projects[0].id;
+
+    if (!projects.length) {
+      allIssues = [];
+      internalMilestones = [];
+      setExternalStatus('Nenhum projeto liberado');
+      renderExternalView();
+      return;
+    }
+
     await loadCentralData();
-  }
-
-  const activeProj = getActiveProject();
-  const cfg = { ...DEFAULT_CFG, ...publicCfg, ...(activeProj || {}) };
-  if (!projects.length && cfg.token) {
-    projects = [{
-      id: 'proj_external',
-      name: cfg.milestone || 'Projeto',
-      token: cfg.token,
-      url: cfg.url,
-      group: cfg.group,
-      milestone: cfg.milestone,
-      firebaseConfig: fCfg,
-    }];
-    activeProjectId = 'proj_external';
-  }
-
-  updateProjectBadge();
-  await loadExternalIssues({ ...cfg, ...(getActiveProject() || {}) });
+    updateProjectBadge();
+    await loadExternalIssues({ ...cfgBase, ...(getActiveProject() || {}) });
+  });
 }
 
 /* Registra event listeners dos filtros — chamado uma vez após o auth */

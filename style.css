@@ -1402,6 +1402,20 @@ input[type="text"], input[type="password"], input[type="date"], select {
   display: flex; flex-direction: column; gap: 6px;
   max-height: 240px; overflow-y: auto;
 }
+.admin-proj-group {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.admin-proj-group + .admin-proj-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border2);
+}
+.admin-proj-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+}
 .admin-proj-row {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: 6px;
