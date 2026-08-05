@@ -33,6 +33,10 @@ let internalMilestones= [];
 let timeline          = null;
 let macroTimeline     = null;
 let db                = null;
+let externalTimeline  = null;
+
+const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('externo') ||
+                         new URLSearchParams(window.location.search).has('external');
 
 /* Auth state */
 let currentUser  = null;  // firebase.User
@@ -1228,6 +1232,173 @@ function renderRows(issues) {
   }).join('');
 }
 
+/* ─── RENDER (EXTERNAL) ──────────────────────────────────────────────────── */
+function showExternalUI() {
+  document.body.classList.remove('auth-checking');
+  document.body.classList.add('external-mode');
+  document.getElementById('loginScreen')?.style && (document.getElementById('loginScreen').style.display = 'none');
+  document.getElementById('pendingScreen')?.style && (document.getElementById('pendingScreen').style.display = 'none');
+  document.getElementById('externalView')?.style && (document.getElementById('externalView').style.display = '');
+}
+
+function setExternalStatus(msg) {
+  const el = document.getElementById('externalStatus');
+  if (el) el.textContent = msg;
+}
+
+function getCurrentSprintMilestone() {
+  const todayStr = fmt(TODAY);
+  const active = internalMilestones
+    .filter(ms => ms.start && ms.end && ms.start <= todayStr && ms.end >= todayStr)
+    .sort((a,b) => (a.end || '').localeCompare(b.end || ''));
+  if (active.length) return active[0];
+
+  return internalMilestones
+    .filter(ms => ms.start && ms.end && ms.end >= todayStr)
+    .sort((a,b) => (a.start || '').localeCompare(b.start || ''))[0] || null;
+}
+
+function getExternalIssues(ms) {
+  const activeStatuses = new Set(['Andamento', 'Pausada', 'Aguardando', 'Não iniciada']);
+  let issues = allIssues;
+
+  if (ms?.issueIids?.length) {
+    const iids = new Set(ms.issueIids.map(Number));
+    issues = issues.filter(issue => iids.has(Number(issue.iid)));
+  }
+
+  return issues
+    .filter(issue => issue.state !== 'closed')
+    .filter(issue => activeStatuses.has(effectiveStatus(issue)))
+    .sort((a,b) =>
+      (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
+      (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
+    );
+}
+
+function getExternalRange(ms, issues) {
+  if (ms?.start && ms?.end) return { from: ms.start, to: ms.end };
+
+  const dates = issues.flatMap(issue => [issue.start, issue.end].filter(Boolean)).sort();
+  if (dates.length >= 2) return { from: dates[0], to: dates[dates.length - 1] };
+  if (dates.length === 1) {
+    const start = parseD(dates[0]);
+    const end = new Date(start); end.setDate(start.getDate() + 14);
+    return { from: fmt(start), to: fmt(end) };
+  }
+
+  const start = new Date(TODAY);
+  start.setDate(TODAY.getDate() - TODAY.getDay() + 1);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 13);
+  return { from: fmt(start), to: fmt(end) };
+}
+
+function buildExternalTimeline(from, to) {
+  const t0 = parseD(from), t1 = parseD(to);
+  const span = Math.max(1, Math.round((t1 - t0) / 86400000));
+  externalTimeline = { t0, t1, span };
+
+  const hdr = document.getElementById('externalTlHeader');
+  if (!hdr) return;
+  hdr.innerHTML = '';
+
+  let dayStep = 1;
+  if (span > 90) dayStep = 14;
+  else if (span > 45) dayStep = 7;
+  else if (span > 20) dayStep = 5;
+  else if (span > 10) dayStep = 2;
+
+  for (let i = 0; i <= span; i += dayStep) {
+    const cur = new Date(t0); cur.setDate(t0.getDate() + i);
+    const pct = (i / span) * 100;
+    const tick = document.createElement('div');
+    tick.className = 'tl-tick';
+    tick.style.left = pct + '%';
+    if (i + dayStep > span) {
+      tick.style.transform = 'translateX(-100%)';
+      tick.style.borderLeft = 'none';
+      tick.style.textAlign = 'right';
+    }
+    tick.textContent = cur.toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+    hdr.appendChild(tick);
+  }
+
+  if (TODAY >= t0 && TODAY <= t1) {
+    const pct = ((TODAY - t0) / (t1 - t0)) * 100;
+    hdr.insertAdjacentHTML('beforeend',
+      `<div class="today-line" style="left:${pct}%"></div>
+       <div class="today-lbl" style="left:${pct}%;z-index:11">hoje</div>`);
+  }
+}
+
+function renderExternalView() {
+  const ms = getCurrentSprintMilestone();
+  const issues = getExternalIssues(ms);
+  const range = getExternalRange(ms, issues);
+  const title = ms?.name || getActiveProject()?.name || loadCfg().milestone || 'Demandas em andamento';
+  const avg = issues.length
+    ? Math.round(issues.reduce((sum, issue) => sum + effectivePct(issue), 0) / issues.length)
+    : 0;
+  const overdue = issues.filter(issue => issue.end && issue.end < fmt(TODAY)).length;
+
+  document.getElementById('externalTitle').textContent = title;
+  document.getElementById('externalSubtitle').textContent = ms
+    ? `Sprint atual | ${fmtBR(ms.start)} a ${fmtBR(ms.end)}`
+    : 'Sprint atual | demandas abertas';
+  document.getElementById('externalRange').textContent = `${fmtBR(range.from)} a ${fmtBR(range.to)}`;
+  document.getElementById('msBadge').textContent = 'Externo';
+  document.getElementById('externalStats').innerHTML = `
+    <div class="external-stat"><strong>${issues.length}</strong><span>em andamento</span></div>
+    <div class="external-stat"><strong>${avg}%</strong><span>progresso médio</span></div>
+    <div class="external-stat"><strong>${overdue}</strong><span>em atraso</span></div>
+  `;
+
+  buildExternalTimeline(range.from, range.to);
+
+  const body = document.getElementById('externalBody');
+  if (!issues.length) {
+    body.innerHTML = '<tr><td colspan="7" class="no-data">Nenhuma demanda em andamento para exibir.</td></tr>';
+    setExternalStatus('Sem demandas abertas');
+    return;
+  }
+
+  const todayStr = fmt(TODAY);
+  body.innerHTML = issues.map(issue => {
+    const status = effectiveStatus(issue);
+    const pct = effectivePct(issue);
+    const color = STATUS_COLORS[status] || 'var(--gray)';
+    const sClass = STATUS_CLASS[status] || 'sb-w';
+    const isOverdue = issue.end && issue.end < todayStr;
+    const labels = (issue.labels || []).slice(0, 3).map(label =>
+      `<span class="issue-label">${esc(label)}</span>`
+    ).join('');
+    const barHTML = buildBarHTML(issue.start, issue.end, status, pct, externalTimeline, isOverdue);
+
+    return `<tr>
+      <td><span class="iid">#${issue.iid}</span></td>
+      <td>
+        <span class="issue-title-plain">${esc(issue.title)}</span>
+        ${labels ? `<div class="issue-labels">${labels}</div>` : ''}
+      </td>
+      <td class="date-cell">${fmtBR(issue.start)}</td>
+      <td class="date-cell ${isOverdue ? 'overdue' : ''}">${fmtBR(issue.end)}</td>
+      <td><span class="sbadge ${sClass}">${status}</span></td>
+      <td>
+        <div class="external-progress">
+          <div class="prog-track">
+            <div class="prog-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <span class="prog-label-static">${pct}%</span>
+        </div>
+      </td>
+      <td class="bar-cell-td"><div class="bar-outer">${barHTML}</div></td>
+    </tr>`;
+  }).join('');
+
+  setExternalStatus(`Atualizado em ${new Date().toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' })}`);
+}
+
 /* ─── RENDER (MACRO) ─────────────────────────────────────────────────────── */
 function renderMacro() {
   if (!document.getElementById('macroFrom').value) setDefaultMacroFilters();
@@ -1867,6 +2038,83 @@ async function loadCredentials() {
 
 /* ─── INIT ──────────────────────────────────────────────────────────────── */
 
+async function loadExternalConfigFile() {
+  const apiCfg = window.__API_CONFIG__ || {};
+  let fileCfg = null;
+  try {
+    const resp = await fetch(`config.json?t=${Date.now()}`);
+    if (resp.ok) fileCfg = await resp.json();
+  } catch(e) {}
+  return { ...(fileCfg || {}), ...apiCfg };
+}
+
+async function loadExternalIssues(cfg) {
+  if (!cfg.token || !cfg.url || !cfg.group) {
+    setExternalStatus(allIssues.length ? 'Usando cache local' : 'Configure token, URL e grupo');
+    renderExternalView();
+    return;
+  }
+
+  setExternalStatus('Carregando GitLab...');
+  try {
+    const params = new URLSearchParams({ state: 'all', per_page: '100' });
+    if (cfg.milestone) params.append('milestone', cfg.milestone);
+    const ignoredLabels = ['Ready', 'Specification'];
+    if (ignoredLabels.length) params.append('not[labels]', ignoredLabels.join(','));
+
+    const raw = await fetchAllPages(
+      `${cfg.url}/api/v4/groups/${cfg.group}/issues?${params.toString()}`, cfg.token
+    );
+    allIssues = raw.map(mapIssue).filter(i => !i.labels.some(l => ignoredLabels.includes(l)));
+    allIssues.sort((a,b) =>
+      (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
+      (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
+    );
+  } catch(e) {
+    console.error('Erro ao carregar visão externa do GitLab:', e);
+    setExternalStatus(allIssues.length ? 'Usando cache salvo' : 'Falha ao carregar GitLab');
+  }
+
+  renderExternalView();
+}
+
+async function inicializarModoExterno() {
+  showExternalUI();
+  loadProjectsLocal();
+  loadProgress();
+  loadMilestonesLocal();
+
+  const publicCfg = await loadExternalConfigFile();
+  const fCfg = (publicCfg?.firebaseConfig?.apiKey && publicCfg.firebaseConfig.apiKey !== 'SUA_API_KEY')
+    ? publicCfg.firebaseConfig
+    : null;
+  initFirebase(fCfg);
+
+  if (db) {
+    await loadProjectsFromCloud();
+    if (!activeProjectId && projects.length) activeProjectId = projects[0].id;
+    await loadCentralData();
+  }
+
+  const activeProj = getActiveProject();
+  const cfg = { ...DEFAULT_CFG, ...publicCfg, ...(activeProj || {}) };
+  if (!projects.length && cfg.token) {
+    projects = [{
+      id: 'proj_external',
+      name: cfg.milestone || 'Projeto',
+      token: cfg.token,
+      url: cfg.url,
+      group: cfg.group,
+      milestone: cfg.milestone,
+      firebaseConfig: fCfg,
+    }];
+    activeProjectId = 'proj_external';
+  }
+
+  updateProjectBadge();
+  await loadExternalIssues({ ...cfg, ...(getActiveProject() || {}) });
+}
+
 /* Registra event listeners dos filtros — chamado uma vez após o auth */
 function setupFilterListeners() {
   ['filterSearch','filterStatus','filterFrom','filterTo'].forEach(id=>{
@@ -1970,5 +2218,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 applyTheme(getPreferredTheme());
-inicializarApp();
+if (IS_EXTERNAL_MODE) {
+  inicializarModoExterno();
+} else {
+  inicializarApp();
+}
 

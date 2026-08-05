@@ -92,6 +92,51 @@
     <!-- SUMMARY -->
     <div class="summary" id="summary"></div>
 
+    <!-- EXTERNAL VIEW -->
+    <main class="external-view" id="externalView" style="display:none">
+        <section class="external-head">
+            <div>
+                <span class="external-kicker">Visão externa</span>
+                <h2 id="externalTitle">Demandas em andamento</h2>
+                <p id="externalSubtitle">Sprint atual</p>
+            </div>
+            <div class="external-stats" id="externalStats"></div>
+        </section>
+
+        <section class="external-board">
+            <div class="external-board-head">
+                <div>
+                    <h3>Gantt da sprint</h3>
+                    <p id="externalRange">-</p>
+                </div>
+                <span id="externalStatus" class="external-status">Carregando...</span>
+            </div>
+            <div class="external-table-wrap">
+                <table class="external-table">
+                    <thead>
+                        <tr>
+                            <th style="width:54px">#</th>
+                            <th style="min-width:260px">Demanda</th>
+                            <th style="width:84px">Início</th>
+                            <th style="width:84px">Fim</th>
+                            <th style="width:108px">Status</th>
+                            <th style="width:94px">Progresso</th>
+                            <th class="bar-th">
+                                <div id="externalTlHeader" class="tl-header"></div>
+                                Linha do Tempo
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="externalBody">
+                        <tr>
+                            <td colspan="7" class="no-data">Carregando demandas...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
     <!-- MACRO VIEW -->
     <div class="wrap" id="macroWrap" style="display:none">
         <table>
@@ -316,9 +361,9 @@
     <div id="loginScreen" style="display:none">
         <div class="login-bg-blur"></div>
         <div class="login-card">
-            <div class="login-logo">▦</div>
+            <div class="login-logo"></div>
             <h2 class="login-title">Gantt Chart - GitLab</h2>
-            <p class="login-subtitle">Gestão de cronogramas e issues</p>
+            <p class="login-subtitle">Acompanhamento de demandas</p>
 
             <!-- Abas -->
             <div class="login-tabs" id="loginTabs">
