@@ -341,6 +341,50 @@ header h1 {
   line-height: 1.25;
 }
 
+.external-ms-row {
+  cursor: pointer;
+}
+
+.external-ms-row:hover {
+  background: var(--bg2);
+}
+
+.external-ms-row.expanded {
+  background: var(--bg2);
+}
+
+.external-accordion-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.external-issue-row td {
+  background: color-mix(in srgb, var(--bg2) 70%, transparent);
+  height: 40px;
+}
+
+.external-issue-row td:first-child {
+  padding-left: 18px;
+}
+
+.external-issue-row .issue-title-plain {
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.external-empty-issues {
+  color: var(--text3);
+  font-size: 12px;
+}
+
 .external-table .issue-labels {
   display: flex;
   flex-wrap: wrap;

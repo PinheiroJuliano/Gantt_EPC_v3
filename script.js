@@ -35,6 +35,7 @@ let timeline          = null;
 let macroTimeline     = null;
 let db                = null;
 let externalTimeline  = null;
+let externalExpandedMilestones = new Set();
 
 const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('externo') ||
                          new URLSearchParams(window.location.search).has('external');
@@ -1323,8 +1324,38 @@ function getExternalIssues(ms) {
     );
 }
 
-function getExternalRange(ms, issues) {
-  if (ms?.start && ms?.end) return { from: ms.start, to: ms.end };
+function getExternalMilestones() {
+  return [...internalMilestones].sort((a,b) =>
+    (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31') ||
+    (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
+    (a.name || '').localeCompare(b.name || '')
+  );
+}
+
+function getExternalMilestoneIssues(ms) {
+  const iids = new Set((ms.issueIids || []).map(Number));
+  return allIssues
+    .filter(issue => iids.has(Number(issue.iid)))
+    .sort((a,b) =>
+      (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
+      (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
+    );
+}
+
+function simplifyExternalIssueTitle(title) {
+  const raw = String(title || '').trim();
+  const idx = raw.indexOf('-');
+  if (idx === -1) return raw;
+  const simplified = raw.slice(idx + 1).trim();
+  return simplified || raw;
+}
+
+function getExternalRange(milestones, issues = []) {
+  const msDates = milestones.flatMap(ms => [ms.start, ms.end].filter(Boolean));
+  if (msDates.length >= 2) {
+    const dates = msDates.sort();
+    return { from: dates[0], to: dates[dates.length - 1] };
+  }
 
   const dates = issues.flatMap(issue => [issue.start, issue.end].filter(Boolean)).sort();
   if (dates.length >= 2) return { from: dates[0], to: dates[dates.length - 1] };
@@ -1380,71 +1411,116 @@ function buildExternalTimeline(from, to) {
 }
 
 function renderExternalView() {
-  const ms = getCurrentSprintMilestone();
-  const issues = getExternalIssues(ms);
-  const range = getExternalRange(ms, issues);
-  const title = ms?.name || getActiveProject()?.name || loadCfg().milestone || 'Demandas em andamento';
-  const avg = issues.length
-    ? Math.round(issues.reduce((sum, issue) => sum + effectivePct(issue), 0) / issues.length)
+  const milestones = getExternalMilestones();
+  const activeMs = getCurrentSprintMilestone();
+  const linkedIssues = milestones.flatMap(ms => getExternalMilestoneIssues(ms));
+  const range = getExternalRange(milestones, linkedIssues);
+  const title = getActiveProject()?.name || loadCfg().milestone || 'Demandas em andamento';
+  const avg = linkedIssues.length
+    ? Math.round(linkedIssues.reduce((sum, issue) => sum + effectivePct(issue), 0) / linkedIssues.length)
     : 0;
-  const overdue = issues.filter(issue => issue.end && issue.end < fmt(TODAY)).length;
+  const overdue = milestones.filter(ms => ms.end && ms.end < fmt(TODAY) && getMsProgress(ms).status !== 'Concluída').length;
 
   document.getElementById('externalTitle').textContent = title;
-  document.getElementById('externalSubtitle').textContent = ms
-    ? `Sprint atual | ${fmtBR(ms.start)} a ${fmtBR(ms.end)}`
-    : 'Sprint atual | demandas abertas';
+  document.getElementById('externalSubtitle').textContent = activeMs
+    ? `Sprint atual | ${activeMs.name} | ${fmtBR(activeMs.start)} a ${fmtBR(activeMs.end)}`
+    : 'Milestones e demandas vinculadas';
   document.getElementById('externalRange').textContent = `${fmtBR(range.from)} a ${fmtBR(range.to)}`;
   document.getElementById('msBadge').textContent = 'Externo';
   document.getElementById('externalStats').innerHTML = `
-    <div class="external-stat"><strong>${issues.length}</strong><span>em andamento</span></div>
+    <div class="external-stat"><strong>${milestones.length}</strong><span>milestones</span></div>
+    <div class="external-stat"><strong>${linkedIssues.length}</strong><span>issues vinculadas</span></div>
     <div class="external-stat"><strong>${avg}%</strong><span>progresso médio</span></div>
-    <div class="external-stat"><strong>${overdue}</strong><span>em atraso</span></div>
+    <div class="external-stat"><strong>${overdue}</strong><span>milestones em atraso</span></div>
   `;
 
   buildExternalTimeline(range.from, range.to);
 
   const body = document.getElementById('externalBody');
-  if (!issues.length) {
-    body.innerHTML = '<tr><td colspan="7" class="no-data">Nenhuma demanda em andamento para exibir.</td></tr>';
-    setExternalStatus('Sem demandas abertas');
+  if (!milestones.length) {
+    body.innerHTML = '<tr><td colspan="7" class="no-data">Nenhuma milestone cadastrada para exibir.</td></tr>';
+    setExternalStatus('Sem milestones');
     return;
   }
 
   const todayStr = fmt(TODAY);
-  body.innerHTML = issues.map(issue => {
-    const status = effectiveStatus(issue);
-    const pct = effectivePct(issue);
-    const color = STATUS_COLORS[status] || 'var(--gray)';
+  if (!externalExpandedMilestones.size && activeMs?.id) {
+    externalExpandedMilestones.add(activeMs.id);
+  }
+  body.innerHTML = milestones.map(ms => {
+    const {autoProgress, manualOverride, status} = getMsProgress(ms);
+    const displayPct = manualOverride !== null ? manualOverride : autoProgress;
+    const color = ms.color || 'var(--blue)';
     const sClass = STATUS_CLASS[status] || 'sb-w';
-    const isOverdue = issue.end && issue.end < todayStr;
-    const labels = (issue.labels || []).slice(0, 3).map(label =>
-      `<span class="issue-label">${esc(label)}</span>`
-    ).join('');
-    const barHTML = buildBarHTML(issue.start, issue.end, status, pct, externalTimeline, isOverdue);
+    const isOverdue = ms.end && ms.end < todayStr && status !== 'Concluída';
+    const issues = getExternalMilestoneIssues(ms);
+    const encodedId = encodeURIComponent(ms.id);
+    const isExpanded = externalExpandedMilestones.has(ms.id);
+    const barHTML = buildBarHTML(ms.start, ms.end, status, displayPct, externalTimeline, isOverdue);
+    const issueRows = issues.length ? issues.map(issue => {
+      const issueStatus = effectiveStatus(issue);
+      const issuePct = effectivePct(issue);
+      const issueColor = STATUS_COLORS[issueStatus] || 'var(--gray)';
+      const issueClass = STATUS_CLASS[issueStatus] || 'sb-w';
+      const issueOverdue = issue.end && issue.end < todayStr && issueStatus !== 'Concluída';
+      const issueBarHTML = buildBarHTML(issue.start, issue.end, issueStatus, issuePct, externalTimeline, issueOverdue);
+      const issueTitle = simplifyExternalIssueTitle(issue.title);
 
-    return `<tr>
-      <td><span class="iid">#${issue.iid}</span></td>
+      return `<tr class="external-issue-row" style="${isExpanded ? '' : 'display:none'}">
+        <td><span class="iid">#${issue.iid}</span></td>
+        <td>
+          ${issue.url
+            ? `<a class="issue-title-plain" href="${esc(issue.url)}" target="_blank">${esc(issueTitle)}</a>`
+            : `<span class="issue-title-plain">${esc(issueTitle)}</span>`}
+        </td>
+        <td class="date-cell">${fmtBR(issue.start)}</td>
+        <td class="date-cell ${issueOverdue ? 'overdue' : ''}">${fmtBR(issue.end)}</td>
+        <td><span class="sbadge ${issueClass}">${issueStatus}</span></td>
+        <td>
+          <div class="external-progress">
+            <div class="prog-track">
+              <div class="prog-fill" style="width:${issuePct}%;background:${issueColor}"></div>
+            </div>
+            <span class="prog-label-static">${issuePct}%</span>
+          </div>
+        </td>
+        <td class="bar-cell-td"><div class="bar-outer">${issueBarHTML}</div></td>
+      </tr>`;
+    }).join('') : `<tr class="external-issue-row" style="${isExpanded ? '' : 'display:none'}">
+      <td></td>
+      <td colspan="6" class="external-empty-issues">Nenhuma issue vinculada a esta milestone.</td>
+    </tr>`;
+
+    return `<tr class="external-ms-row${isExpanded ? ' expanded' : ''}" data-ms-id="${escAttr(ms.id)}" onclick="toggleExternalMilestone('${encodedId}')">
+      <td><button class="external-accordion-btn" type="button" aria-label="Expandir milestone">${isExpanded ? '▾' : '▸'}</button></td>
       <td>
-        <span class="issue-title-plain">${esc(issue.title)}</span>
-        ${labels ? `<div class="issue-labels">${labels}</div>` : ''}
+        <span class="ms-name">${esc(ms.name)}</span>
+        <span class="ms-issue-count">${issues.length} issue(s)</span>
       </td>
-      <td class="date-cell">${fmtBR(issue.start)}</td>
-      <td class="date-cell ${isOverdue ? 'overdue' : ''}">${fmtBR(issue.end)}</td>
+      <td class="date-cell">${fmtBR(ms.start)}</td>
+      <td class="date-cell ${isOverdue ? 'overdue' : ''}">${fmtBR(ms.end)}</td>
       <td><span class="sbadge ${sClass}">${status}</span></td>
       <td>
         <div class="external-progress">
           <div class="prog-track">
-            <div class="prog-fill" style="width:${pct}%;background:${color}"></div>
+            <div class="prog-fill" style="width:${displayPct}%;background:${color}"></div>
           </div>
-          <span class="prog-label-static">${pct}%</span>
+          <span class="prog-label-static">${displayPct}%</span>
         </div>
       </td>
       <td class="bar-cell-td"><div class="bar-outer">${barHTML}</div></td>
-    </tr>`;
+    </tr>${issueRows}`;
   }).join('');
 
   setExternalStatus(`Atualizado em ${new Date().toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' })}`);
 }
+
+window.toggleExternalMilestone = function(encodedId) {
+  const msId = decodeURIComponent(encodedId);
+  if (externalExpandedMilestones.has(msId)) externalExpandedMilestones.delete(msId);
+  else externalExpandedMilestones.add(msId);
+  renderExternalView();
+};
 
 /* ─── RENDER (MACRO) ─────────────────────────────────────────────────────── */
 function renderMacro() {
@@ -2105,7 +2181,6 @@ async function loadExternalIssues(cfg) {
   setExternalStatus('Carregando GitLab...');
   try {
     const params = new URLSearchParams({ state: 'all', per_page: '100' });
-    if (cfg.milestone) params.append('milestone', cfg.milestone);
     const ignoredLabels = ['Ready', 'Specification'];
     if (ignoredLabels.length) params.append('not[labels]', ignoredLabels.join(','));
 
