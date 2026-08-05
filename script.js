@@ -301,6 +301,13 @@ function updateUserWidget(user, profile) {
     configBtn.disabled = !allowed;
     configBtn.title = allowed ? 'Configurações' : 'Configurações indisponíveis';
   }
+  const milestonesBtn = document.getElementById('btnMilestones');
+  if (milestonesBtn) {
+    const allowed = canAccessConfig(profile);
+    milestonesBtn.style.display = allowed ? '' : 'none';
+    milestonesBtn.disabled = !allowed;
+    milestonesBtn.title = allowed ? 'Milestones' : 'Milestones indisponíveis';
+  }
   widget.style.display = '';
 }
 
@@ -1818,6 +1825,7 @@ function flashAutoProgressHint(msId) {
 
 /* ─── MODAL: MILESTONES ──────────────────────────────────────────────────── */
 window.openMsModal = function() {
+  if (!canAccessConfig(userProfile)) return;
   editingMsId=null; renderMsList();
   document.getElementById('msModal').style.display='';
   document.getElementById('msModalBackdrop').style.display='';
