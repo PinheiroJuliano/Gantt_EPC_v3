@@ -832,14 +832,14 @@ window.switchView = function(view) {
   if (view === 'macro') {
     macroWrap.style.display=''; issuesWrap.style.display='none';
     macroTb.style.display='';  issueTb.style.display='none';
-    breadcrumb.style.display='none'; btnMs.style.display='';
+    breadcrumb.style.display='none'; btnMs.style.display=canAccessConfig(userProfile) ? '' : 'none';
     if (history) history.style.display='none';
     fabMacro.classList.add('active'); fabIssues.classList.remove('active');
     renderMacro();
   } else if (view === 'issues') {
     macroWrap.style.display='none'; issuesWrap.style.display='';
     macroTb.style.display='none';  issueTb.style.display='';
-    breadcrumb.style.display='none'; btnMs.style.display='';
+    breadcrumb.style.display='none'; btnMs.style.display=canAccessConfig(userProfile) ? '' : 'none';
     if (history) history.style.display='none';
     fabMacro.classList.remove('active'); fabIssues.classList.add('active');
     render();
