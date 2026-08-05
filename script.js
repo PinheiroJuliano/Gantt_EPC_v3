@@ -262,6 +262,11 @@ function hasExternalAccess(profile) {
     profile.allowedModules.includes(MODULE_EXTERNAL);
 }
 
+function canAccessConfig(profile) {
+  if (!profile) return false;
+  return profile.role === 'admin' || !hasExternalAccess(profile);
+}
+
 /* Filtra a lista global de projetos pelas permissões do usuário */
 function applyUserPermissions(profile) {
   if (!profile || profile.role === 'admin') return; // admin vê tudo
@@ -289,6 +294,13 @@ function updateUserWidget(user, profile) {
   // Mostra botão de admin apenas para role:admin
   const adminBtn = document.getElementById('btnAdminUsers');
   if (adminBtn) adminBtn.style.display = (profile?.role === 'admin') ? '' : 'none';
+  const configBtn = document.getElementById('btnConfig');
+  if (configBtn) {
+    const allowed = canAccessConfig(profile);
+    configBtn.style.display = allowed ? '' : 'none';
+    configBtn.disabled = !allowed;
+    configBtn.title = allowed ? 'Configurações' : 'Configurações indisponíveis';
+  }
   widget.style.display = '';
 }
 
@@ -1955,6 +1967,7 @@ function renderProjectSelector() {
 
 /* ─── CONFIG MODAL ────────────────────────────────────────────────────────── */
 window.openCfgModal = function() {
+  if (!canAccessConfig(userProfile)) return;
   // Preenche com projeto ativo ou config global
   const cfg = loadCfg();
   document.getElementById('cfgToken').value     = cfg.token||'';
