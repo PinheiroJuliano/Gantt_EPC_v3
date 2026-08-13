@@ -719,6 +719,46 @@ function loadMilestonesLocal() {
   try { internalMilestones = JSON.parse(localStorage.getItem(milestonesKey()) || '[]'); } catch { internalMilestones = []; }
 }
 
+function buildIssueSnapshot(issue) {
+  return {
+    iid: issue.iid,
+    id: issue.id,
+    title: issue.title || '',
+    url: issue.url || '',
+    state: issue.state || '',
+    labels: Array.isArray(issue.labels) ? issue.labels : [],
+    start: issue.start || null,
+    end: issue.end || null,
+    apiProgress: issue.apiProgress ?? 0,
+    apiStatus: issue.apiStatus || 'Não iniciada',
+  };
+}
+
+function mergeMilestoneIssueSnapshots(ms, issueIids = ms.issueIids || []) {
+  const currentByIid = new Map(allIssues.map(issue => [Number(issue.iid), issue]));
+  const previousByIid = new Map((ms.issueSnapshots || []).map(issue => [Number(issue.iid), issue]));
+  const normalizedIids = issueIids.map(Number).filter(Number.isFinite);
+  const issueSnapshots = normalizedIids
+    .map(iid => currentByIid.get(iid) || previousByIid.get(iid))
+    .filter(Boolean)
+    .map(buildIssueSnapshot);
+
+  return { ...ms, issueIids: normalizedIids, issueSnapshots };
+}
+
+function syncMilestoneIssueSnapshots() {
+  if (!allIssues.length || !internalMilestones.length) return false;
+  let changed = false;
+  internalMilestones = internalMilestones.map(ms => {
+    const updated = mergeMilestoneIssueSnapshots(ms);
+    const before = JSON.stringify(ms.issueSnapshots || []);
+    const after = JSON.stringify(updated.issueSnapshots || []);
+    if (before !== after) changed = true;
+    return updated;
+  });
+  return changed;
+}
+
 /* ─── CLOUD STORE ─────────────────────────────────────────────────────────── */
 async function loadIssuesFromCentralCache() {
   if (!db) return false;
@@ -735,6 +775,14 @@ async function loadIssuesFromCentralCache() {
     console.error('Falha ao recuperar cache de issues:', e);
     return false;
   }
+}
+
+function findProjectByConfig(cfg = {}) {
+  return projects.find(p =>
+    (!cfg.group || String(p.group || '') === String(cfg.group || '')) &&
+    (!cfg.milestone || String(p.milestone || '') === String(cfg.milestone || '')) &&
+    (!cfg.url || String(p.url || '').replace(/\/$/, '') === String(cfg.url || '').replace(/\/$/, ''))
+  ) || null;
 }
 
 async function loadCentralData() {
@@ -783,6 +831,7 @@ async function saveToCentralData() {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
       if (allIssues.length > 0) {
+        syncMilestoneIssueSnapshots();
         payload.issues         = allIssues;
         issuesSyncedAt         = new Date().toISOString();
         payload.issuesSyncedAt = issuesSyncedAt;
@@ -1367,8 +1416,13 @@ function getExternalMilestones() {
 
 function getExternalMilestoneIssues(ms) {
   const iids = new Set((ms.issueIids || []).map(Number));
-  return allIssues
-    .filter(issue => iids.has(Number(issue.iid)))
+  const liveIssues = allIssues
+    .filter(issue => iids.has(Number(issue.iid)));
+  const foundIids = new Set(liveIssues.map(issue => Number(issue.iid)));
+  const snapshotIssues = (ms.issueSnapshots || [])
+    .filter(issue => iids.has(Number(issue.iid)) && !foundIids.has(Number(issue.iid)));
+
+  return [...liveIssues, ...snapshotIssues]
     .sort((a,b) =>
       (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
       (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
@@ -1909,7 +1963,7 @@ window.deleteMilestone = function(id) {
   saveMilestonesLocal(); saveToCentralData(); renderMsList();
   if (currentView==='macro') renderMacro();
 };
-window.saveMilestone = function() {
+window.saveMilestone = async function() {
   const name   = document.getElementById('msName').value.trim();
   const start  = document.getElementById('msStart').value;
   const end    = document.getElementById('msEnd').value;
@@ -1923,10 +1977,16 @@ window.saveMilestone = function() {
   const issueIids = [...selectedIssueIids];
   if (editingMsId) {
     const idx = internalMilestones.findIndex(m=>m.id===editingMsId);
-    if (idx!==-1) internalMilestones[idx]={...internalMilestones[idx],name,start,end,color,status,issueIids,history};
+    if (idx!==-1) {
+      internalMilestones[idx] = mergeMilestoneIssueSnapshots({
+        ...internalMilestones[idx], name, start, end, color, status, history
+      }, issueIids);
+    }
   } else {
     const id='ms_'+Date.now();
-    internalMilestones.push({id,name,start,end,color,status,issueIids,history,projectId:activeProjectId});
+    internalMilestones.push(mergeMilestoneIssueSnapshots({
+      id, name, start, end, color, status, history, projectId: activeProjectId
+    }, issueIids));
   }
   // Atualiza flag projectId + internalMilestoneId nas issues vinculadas
   issueIids.forEach(iid => {
@@ -1935,7 +1995,7 @@ window.saveMilestone = function() {
     progress[iid].internalMilestoneId= editingMsId || internalMilestones[internalMilestones.length-1]?.id;
     if (!progress[iid].updatedAt) progress[iid].updatedAt=new Date().toISOString();
   });
-  saveMilestonesLocal(); saveProgress(); saveToCentralData();
+  saveMilestonesLocal(); saveProgress(); await saveToCentralData();
   closeMsFormModal(); clearMsForm(); renderMsList();
   setDefaultMacroFilters();
   if (currentView==='macro') renderMacro();
@@ -2295,6 +2355,7 @@ async function inicializarModoExterno() {
 
     showExternalUI();
     loadProjectsLocal();
+    const hadLocalActiveProject = !!activeProjectId;
     loadProgress();
     loadMilestonesLocal();
 
@@ -2304,6 +2365,12 @@ async function inicializarModoExterno() {
     applyUserPermissions(userProfile);
 
     const cfgBase = { ...DEFAULT_CFG, ...publicCfg };
+    const configuredProject = findProjectByConfig(cfgBase);
+    if (!hadLocalActiveProject && configuredProject) {
+      activeProjectId = configuredProject.id;
+      saveProjectsLocalRaw();
+    }
+
     if (userProfile.role === 'admin' && !projects.length && cfgBase.token) {
       projects = [{
         id: 'proj_external',
