@@ -36,6 +36,7 @@ let macroTimeline     = null;
 let db                = null;
 let externalTimeline  = null;
 let externalExpandedMilestones = new Set();
+let issuesSyncedAt    = null;
 
 const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('externo') ||
                          new URLSearchParams(window.location.search).has('external');
@@ -719,6 +720,23 @@ function loadMilestonesLocal() {
 }
 
 /* ─── CLOUD STORE ─────────────────────────────────────────────────────────── */
+async function loadIssuesFromCentralCache() {
+  if (!db) return false;
+  try {
+    const doc = await db.collection('gantt').doc(projectDocId()).get();
+    if (!doc.exists) return false;
+    const data = doc.data() || {};
+    if (!Array.isArray(data.issues) || !data.issues.length) return false;
+
+    allIssues = data.issues;
+    issuesSyncedAt = data.issuesSyncedAt || null;
+    return issuesSyncedAt || true;
+  } catch(e) {
+    console.error('Falha ao recuperar cache de issues:', e);
+    return false;
+  }
+}
+
 async function loadCentralData() {
   if (db) {
     try {
@@ -727,7 +745,10 @@ async function loadCentralData() {
         const data = doc.data() || {};
         progress            = data.progress   || {};
         internalMilestones  = data.milestones || internalMilestones;
-        if (data.issues) allIssues = data.issues;
+        if (data.issues) {
+          allIssues = data.issues;
+          issuesSyncedAt = data.issuesSyncedAt || null;
+        }
         saveMilestonesLocal();
         saveProgress();
       }
@@ -763,7 +784,8 @@ async function saveToCentralData() {
       };
       if (allIssues.length > 0) {
         payload.issues         = allIssues;
-        payload.issuesSyncedAt = new Date().toISOString();
+        issuesSyncedAt         = new Date().toISOString();
+        payload.issuesSyncedAt = issuesSyncedAt;
       }
       await db.collection('gantt').doc(projectDocId()).set(payload, { merge: true });
     } catch(e) { console.error('Erro ao salvar no Firestore:', e); }
@@ -981,24 +1003,16 @@ async function loadFromAPI() {
     if (currentView === 'macro') renderMacro();
   } catch(e) {
     console.error('Erro ao carregar do GitLab, tentando cache...', e);
-    if (db) {
-      try {
-        const doc = await db.collection('gantt').doc(projectDocId()).get();
-        if (doc.exists) {
-          const data = doc.data() || {};
-          if (data.issues?.length > 0) {
-            allIssues = data.issues;
-            const syncDate = data.issuesSyncedAt ? fmtBR(data.issuesSyncedAt.slice(0,10)) : 'desconhecida';
-            setApiStatus(`☁ Cache: ${allIssues.length} issues (Sinc: ${syncDate})`, 'ok');
-            document.getElementById('btnReload').style.display = 'inline-block';
-            setDefaultFilters();
-            if (document.getElementById('msFormModal').style.display !== 'none') populateIssuePicker();
-            render();
-            if (currentView === 'macro') renderMacro();
-            return;
-          }
-        }
-      } catch(dbErr) { console.error('Falha ao recuperar cache:', dbErr); }
+    const cachedAt = await loadIssuesFromCentralCache();
+    if (cachedAt) {
+      const syncDate = cachedAt === true ? 'desconhecida' : fmtBR(String(cachedAt).slice(0,10));
+      setApiStatus(`☁ Cache: ${allIssues.length} issues (Sinc: ${syncDate})`, 'ok');
+      document.getElementById('btnReload').style.display = 'inline-block';
+      setDefaultFilters();
+      if (document.getElementById('msFormModal').style.display !== 'none') populateIssuePicker();
+      render();
+      if (currentView === 'macro') renderMacro();
+      return;
     }
     setApiStatus(`❌ Erro: ${e.message}`, 'err');
   }
@@ -2194,7 +2208,13 @@ async function loadExternalConfigFile() {
 
 async function loadExternalIssues(cfg) {
   if (!cfg.token || !cfg.url || !cfg.group) {
-    setExternalStatus(allIssues.length ? 'Usando cache local' : 'Configure token, URL e grupo');
+    const cachedAt = await loadIssuesFromCentralCache();
+    if (cachedAt) {
+      const syncDate = cachedAt === true ? 'desconhecida' : fmtBR(String(cachedAt).slice(0,10));
+      setExternalStatus(`Usando cache salvo (${allIssues.length} issues, sinc ${syncDate})`);
+    } else {
+      setExternalStatus(allIssues.length ? 'Usando cache local' : 'Configure token, URL e grupo');
+    }
     renderExternalView();
     return;
   }
@@ -2202,6 +2222,7 @@ async function loadExternalIssues(cfg) {
   setExternalStatus('Carregando GitLab...');
   try {
     const params = new URLSearchParams({ state: 'all', per_page: '100' });
+    if (cfg.milestone) params.append('milestone', cfg.milestone);
     const ignoredLabels = ['Ready', 'Specification'];
     if (ignoredLabels.length) params.append('not[labels]', ignoredLabels.join(','));
 
@@ -2213,9 +2234,17 @@ async function loadExternalIssues(cfg) {
       (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
       (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
     );
+    await saveToCentralData();
+    setExternalStatus(`${allIssues.length} issues carregadas`);
   } catch(e) {
     console.error('Erro ao carregar visão externa do GitLab:', e);
-    setExternalStatus(allIssues.length ? 'Usando cache salvo' : 'Falha ao carregar GitLab');
+    const cachedAt = allIssues.length ? (issuesSyncedAt || true) : await loadIssuesFromCentralCache();
+    if (cachedAt) {
+      const syncDate = cachedAt === true ? 'desconhecida' : fmtBR(String(cachedAt).slice(0,10));
+      setExternalStatus(`Usando cache salvo (${allIssues.length} issues, sinc ${syncDate})`);
+    } else {
+      setExternalStatus('Falha ao carregar GitLab');
+    }
   }
 
   renderExternalView();
