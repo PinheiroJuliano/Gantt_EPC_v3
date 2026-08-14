@@ -9,7 +9,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20260814-milestones">
 </head>
 
 <body>
@@ -220,6 +220,7 @@
             <p class="modal-empty" id="msListEmpty">Nenhuma milestone cadastrada ainda.</p>
         </div>
         <div class="modal-footer">
+            <span class="form-save-feedback" id="msListSaveFeedback"></span>
             <button class="btn btn-new-ms" onclick="openMsFormModal(null)">＋ Nova Milestone</button>
         </div>
     </div>
@@ -242,8 +243,8 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">Cor</label>
-                    <input type="color" id="msColor" value="#2e6fcc"
-                        style="width:100%;height:34px;padding:2px 4px;cursor:pointer" />
+                    <input type="hidden" id="msColor" value="#2e6fcc" />
+                    <div class="color-palette" id="msColorPalette"></div>
                 </div>
             </div>
             <div class="form-row">
@@ -281,8 +282,9 @@
                     placeholder="Resumo do que foi feito e finalizado nesta sprint"></textarea>
             </div>
             <div class="form-actions">
+                <span class="form-save-feedback" id="msSaveFeedback"></span>
                 <button class="btn" onclick="closeMsFormModal()">Cancelar</button>
-                <button class="btn primary" onclick="saveMilestone()">Salvar milestone</button>
+                <button class="btn primary" id="btnSaveMilestone" onclick="saveMilestone()">Salvar milestone</button>
             </div>
         </div>
     </div>
@@ -523,7 +525,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="script.js?v=20260814-filters"></script>
+    <script src="script.js?v=20260814-milestones"></script>
 </body>
 
 </html>

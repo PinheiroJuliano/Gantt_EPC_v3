@@ -23,6 +23,7 @@ const SUM_CLASS = {
   'Andamento':'s-a','Pausada':'s-p',
   'Concluída':'s-c','Aguardando':'s-w','Não iniciada':'s-w',
 };
+const MS_COLOR_POOL = ['#2e6fcc', '#2f9e44', '#f08c00', '#e03131', '#7048e8', '#0ca678', '#495057', '#d6336c'];
 
 const JSONBIN_ID  = "6a17424b21f9ee59d2927ff3";
 const JSONBIN_KEY = "$2a$10$3Gy2uaQPtFI5sYWND4e1nOAhKfNcwnqAt/had4F0jmKdWSSItcaGS";
@@ -38,6 +39,7 @@ let externalTimeline  = null;
 let externalExpandedMilestones = new Set();
 let issuesSyncedAt    = null;
 let lastIssueLoadPartial = false;
+let msSaveFeedbackTimer = null;
 
 const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('externo') ||
                          new URLSearchParams(window.location.search).has('external');
@@ -1938,13 +1940,14 @@ window.openMsModal = function() {
   document.getElementById('msModalBackdrop').style.display='';
 };
 window.openMsFormModal = function(id) {
+  clearMsSaveFeedback();
   if (id) {
     const ms=internalMilestones.find(m=>m.id===id); if(!ms) return;
     editingMsId=id;
     document.getElementById('msName').value   = ms.name;
     document.getElementById('msStart').value  = ms.start||'';
     document.getElementById('msEnd').value    = ms.end||'';
-    document.getElementById('msColor').value  = ms.color||'#2e6fcc';
+    selectMsColor(ms.color);
     document.getElementById('msStatus').value = ms.status||'Não iniciada';
     document.getElementById('msHistory').value = ms.history||'';
     selectedIssueIids = new Set((ms.issueIids||[]).map(Number));
@@ -1953,6 +1956,7 @@ window.openMsFormModal = function(id) {
     editingMsId=null; clearMsForm();
     document.getElementById('msFormTitle').textContent='Nova Milestone';
   }
+  renderMsColorPalette();
   populateIssuePicker(); updatePickerCount();
   document.getElementById('msFormModal').style.display='';
   document.getElementById('msFormModalBackdrop').style.display='';
@@ -1969,10 +1973,44 @@ window.closeMsFormModal = function() {
 };
 function clearMsForm() {
   document.getElementById('msName').value=''; document.getElementById('msStart').value='';
-  document.getElementById('msEnd').value=''; document.getElementById('msColor').value='#2e6fcc';
+  document.getElementById('msEnd').value=''; selectMsColor();
   document.getElementById('msStatus').value='Não iniciada';
   document.getElementById('msHistory').value='';
   selectedIssueIids=new Set(); updatePickerCount(); populateIssuePicker();
+}
+function selectMsColor(color = MS_COLOR_POOL[0]) {
+  const selected = MS_COLOR_POOL.includes(color) ? color : MS_COLOR_POOL[0];
+  document.getElementById('msColor').value = selected;
+  renderMsColorPalette();
+}
+function renderMsColorPalette() {
+  const palette = document.getElementById('msColorPalette');
+  if (!palette) return;
+  const selected = document.getElementById('msColor')?.value || MS_COLOR_POOL[0];
+  palette.innerHTML = MS_COLOR_POOL.map(color =>
+    `<button type="button" class="color-swatch ${color === selected ? 'selected' : ''}" ` +
+    `style="background:${color}" aria-label="Selecionar cor ${color}" onclick="selectMsColor('${color}')"></button>`
+  ).join('');
+}
+function clearMsSaveFeedback() {
+  if (msSaveFeedbackTimer) clearTimeout(msSaveFeedbackTimer);
+  msSaveFeedbackTimer = null;
+  ['msSaveFeedback', 'msListSaveFeedback'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = '';
+    el.className = 'form-save-feedback';
+  });
+}
+function showMsSaveFeedback(message, type = 'ok') {
+  clearMsSaveFeedback();
+  ['msSaveFeedback', 'msListSaveFeedback'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = message;
+    el.className = `form-save-feedback ${type}`;
+  });
+  msSaveFeedbackTimer = setTimeout(clearMsSaveFeedback, 2600);
 }
 function renderMsList() {
   const list=document.getElementById('msList'), empty=document.getElementById('msListEmpty');
@@ -2003,10 +2041,13 @@ window.deleteMilestone = function(id) {
   if (currentView==='macro') renderMacro();
 };
 window.saveMilestone = async function() {
+  const saveBtn = document.getElementById('btnSaveMilestone');
   const name   = document.getElementById('msName').value.trim();
   const start  = document.getElementById('msStart').value;
   const end    = document.getElementById('msEnd').value;
-  const color  = document.getElementById('msColor').value;
+  const color  = MS_COLOR_POOL.includes(document.getElementById('msColor').value)
+    ? document.getElementById('msColor').value
+    : MS_COLOR_POOL[0];
   const status = document.getElementById('msStatus').value;
   const history = document.getElementById('msHistory').value.trim();
   if (!name)      { alert('Informe o nome da milestone.'); return; }
@@ -2034,10 +2075,25 @@ window.saveMilestone = async function() {
     progress[iid].internalMilestoneId= editingMsId || internalMilestones[internalMilestones.length-1]?.id;
     if (!progress[iid].updatedAt) progress[iid].updatedAt=new Date().toISOString();
   });
-  saveMilestonesLocal(); saveProgress(); await saveToCentralData();
-  closeMsFormModal(); clearMsForm(); renderMsList();
-  setDefaultMacroFilters();
-  if (currentView==='macro') renderMacro();
+  try {
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Salvando...';
+    }
+    saveMilestonesLocal(); saveProgress(); await saveToCentralData();
+    closeMsFormModal(); clearMsForm(); renderMsList();
+    setDefaultMacroFilters();
+    if (currentView==='macro') renderMacro();
+    showMsSaveFeedback('Milestone salva.');
+  } catch(e) {
+    console.error('Erro ao salvar milestone:', e);
+    showMsSaveFeedback('Erro ao salvar.', 'err');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Salvar milestone';
+    }
+  }
 };
 
 /* ─── ISSUE PICKER ───────────────────────────────────────────────────────── */
