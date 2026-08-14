@@ -37,6 +37,7 @@ let db                = null;
 let externalTimeline  = null;
 let externalExpandedMilestones = new Set();
 let issuesSyncedAt    = null;
+let lastIssueLoadPartial = false;
 
 const IS_EXTERNAL_MODE = new URLSearchParams(window.location.search).has('externo') ||
                          new URLSearchParams(window.location.search).has('external');
@@ -945,11 +946,37 @@ function setApiStatus(msg, cls) {
 
 async function fetchAllPages(url, token) {
   const headers = { 'Private-Token': token };
+  const retryDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  lastIssueLoadPartial = false;
   let page = 1, results = [];
   while (true) {
     const sep = url.includes('?') ? '&' : '?';
-    const r = await fetch(`${url}${sep}per_page=100&page=${page}`, { headers });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    let r;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        r = await fetch(`${url}${sep}per_page=100&page=${page}`, { headers, cache: 'no-store' });
+        break;
+      } catch (e) {
+        if (attempt < 3) {
+          await retryDelay(350 * attempt);
+          continue;
+        }
+        if (results.length) {
+          lastIssueLoadPartial = true;
+          console.warn(`Falha ao carregar a página ${page}; renderizando ${results.length} issue(s) já recebidas.`, e);
+          return results;
+        }
+        throw e;
+      }
+    }
+    if (!r.ok) {
+      if (results.length) {
+        lastIssueLoadPartial = true;
+        console.warn(`GitLab retornou HTTP ${r.status} na página ${page}; renderizando ${results.length} issue(s) já recebidas.`);
+        return results;
+      }
+      throw new Error(`HTTP ${r.status}`);
+    }
     const data = await r.json();
     results = results.concat(data);
     if (data.length < 100) break;
@@ -1012,7 +1039,7 @@ async function loadFromAPI() {
     document.getElementById('msBadge').textContent =
       (getActiveProject()?.name || cfg.milestone || 'Todas');
     document.getElementById('btnReload').style.display = 'inline-block';
-    setApiStatus(`✅ ${allIssues.length} issues`, 'ok');
+    setApiStatus(`${lastIssueLoadPartial ? '⚠ Parcial:' : '✅'} ${allIssues.length} issues`, lastIssueLoadPartial ? 'warn' : 'ok');
     setDefaultFilters();
 
     let needsSync = false;
@@ -2310,7 +2337,7 @@ async function loadExternalIssues(cfg) {
       (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
     );
     await saveToCentralData();
-    setExternalStatus(`${allIssues.length} issues carregadas`);
+    setExternalStatus(`${lastIssueLoadPartial ? 'Parcial: ' : ''}${allIssues.length} issues carregadas`);
   } catch(e) {
     console.error('Erro ao carregar visão externa do GitLab:', e);
     const cachedAt = allIssues.length ? (issuesSyncedAt || true) : await loadIssuesFromCentralCache();
