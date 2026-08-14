@@ -70,7 +70,9 @@
             <option value="opened">Em aberto</option>
             <option value="closed">Fechadas</option>
         </select>
-        <input type="text" id="filterSearch" placeholder="Buscar #ID ou título…" style="min-width:170px" />
+        <input type="search" id="filterSearch" name="issueFilterQuery" placeholder="Buscar #ID ou título…"
+            autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other"
+            style="min-width:170px" />
         <button class="btn" onclick="resetFilters()">↺ Resetar</button>
         <span id="filterCount" style="margin-left:auto;font-size:10px;color:var(--text3)"></span>
         <button class="btn primary" onclick="loadFromAPI()">▶ Carregar</button>
@@ -521,7 +523,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="script.js?v=20260814-issues"></script>
+    <script src="script.js?v=20260814-filters"></script>
 </body>
 
 </html>

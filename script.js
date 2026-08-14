@@ -1040,7 +1040,7 @@ async function loadFromAPI() {
       (getActiveProject()?.name || cfg.milestone || 'Todas');
     document.getElementById('btnReload').style.display = 'inline-block';
     setApiStatus(`${lastIssueLoadPartial ? '⚠ Parcial:' : '✅'} ${allIssues.length} issues`, lastIssueLoadPartial ? 'warn' : 'ok');
-    setDefaultFilters();
+    resetIssueFilters();
 
     let needsSync = false;
     allIssues.forEach(issue => {
@@ -1084,7 +1084,7 @@ async function loadFromAPI() {
       const syncDate = cachedAt === true ? 'desconhecida' : fmtBR(String(cachedAt).slice(0,10));
       setApiStatus(`☁ Cache: ${allIssues.length} issues (Sinc: ${syncDate})`, 'ok');
       document.getElementById('btnReload').style.display = 'inline-block';
-      setDefaultFilters();
+      resetIssueFilters();
       if (document.getElementById('msFormModal').style.display !== 'none') populateIssuePicker();
       render();
       if (currentView === 'macro') renderMacro();
@@ -1102,25 +1102,22 @@ function getCurrentWeekRange() {
   return { from: fmt(s), to: fmt(e) };
 }
 
-function getIssuesDateRange(issues = allIssues) {
-  const dates = issues
-    .flatMap(issue => [issue.start, issue.end])
-    .filter(Boolean)
-    .sort();
-  if (!dates.length) return null;
-  return { from: dates[0], to: dates[dates.length - 1] };
-}
-
 function setDefaultFilters() {
-  const range = getIssuesDateRange() || getCurrentWeekRange();
+  const range = getCurrentWeekRange();
   document.getElementById('filterFrom').value = range.from;
   document.getElementById('filterTo').value   = range.to;
 }
-function resetFilters() {
+
+function resetIssueFilters() {
   document.getElementById('filterSearch').value = '';
   document.getElementById('filterStatus').value = '';
   document.getElementById('filterState').value = '';
-  setDefaultFilters(); render();
+  setDefaultFilters();
+}
+
+function resetFilters() {
+  resetIssueFilters();
+  render();
 }
 function applyFilters() {
   let issues = [...allIssues];
