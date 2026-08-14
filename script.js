@@ -1068,16 +1068,31 @@ async function loadFromAPI() {
 }
 
 /* ─── FILTERS ─────────────────────────────────────────────────────────────── */
-function setDefaultFilters() {
+function getCurrentWeekRange() {
   const now = new Date(TODAY), day = now.getDay();
   const s   = new Date(now); s.setDate(now.getDate() - day);
   const e   = new Date(now); e.setDate(now.getDate() + (6 - day));
-  document.getElementById('filterFrom').value = fmt(s);
-  document.getElementById('filterTo').value   = fmt(e);
+  return { from: fmt(s), to: fmt(e) };
+}
+
+function getIssuesDateRange(issues = allIssues) {
+  const dates = issues
+    .flatMap(issue => [issue.start, issue.end])
+    .filter(Boolean)
+    .sort();
+  if (!dates.length) return null;
+  return { from: dates[0], to: dates[dates.length - 1] };
+}
+
+function setDefaultFilters() {
+  const range = getIssuesDateRange() || getCurrentWeekRange();
+  document.getElementById('filterFrom').value = range.from;
+  document.getElementById('filterTo').value   = range.to;
 }
 function resetFilters() {
   document.getElementById('filterSearch').value = '';
   document.getElementById('filterStatus').value = '';
+  document.getElementById('filterState').value = '';
   setDefaultFilters(); render();
 }
 function applyFilters() {
