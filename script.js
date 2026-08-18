@@ -271,6 +271,10 @@ function canAccessConfig(profile) {
   return profile.role === 'admin' || !hasExternalAccess(profile);
 }
 
+function canEditMilestones(profile) {
+  return !!profile && (profile.role === 'admin' || profile.role === 'user');
+}
+
 /* Filtra a lista global de projetos pelas permissões do usuário */
 function applyUserPermissions(profile) {
   if (!profile || profile.role === 'admin') return; // admin vê tudo
@@ -900,6 +904,7 @@ window.switchView = function(view) {
   const issueTb    = document.getElementById('issueToolbar');
   const breadcrumb = document.getElementById('breadcrumb');
   const btnMs      = document.getElementById('btnMilestones');
+  const drillEditBtn = document.getElementById('btnEditDrillMilestone');
   const fabMacro   = document.getElementById('fabMacro');
   const fabIssues  = document.getElementById('fabIssues');
   const history    = document.getElementById('sprintHistory');
@@ -907,6 +912,7 @@ window.switchView = function(view) {
     macroWrap.style.display=''; issuesWrap.style.display='none';
     macroTb.style.display='';  issueTb.style.display='none';
     breadcrumb.style.display='none'; btnMs.style.display=canAccessConfig(userProfile) ? '' : 'none';
+    if (drillEditBtn) drillEditBtn.style.display='none';
     if (history) history.style.display='none';
     fabMacro.classList.add('active'); fabIssues.classList.remove('active');
     renderMacro();
@@ -914,6 +920,7 @@ window.switchView = function(view) {
     macroWrap.style.display='none'; issuesWrap.style.display='';
     macroTb.style.display='none';  issueTb.style.display='';
     breadcrumb.style.display='none'; btnMs.style.display=canAccessConfig(userProfile) ? '' : 'none';
+    if (drillEditBtn) drillEditBtn.style.display='none';
     if (history) history.style.display='none';
     fabMacro.classList.remove('active'); fabIssues.classList.add('active');
     render();
@@ -931,6 +938,12 @@ window.enterDrill = function(msId) {
   document.getElementById('sprintHistory').style.display='';
   document.getElementById('breadcrumb').style.display='flex';
   document.getElementById('breadcrumbLabel').textContent = ms.name;
+  const editBtn = document.getElementById('btnEditDrillMilestone');
+  if (editBtn) {
+    const allowed = canEditMilestones(userProfile);
+    editBtn.style.display = allowed ? '' : 'none';
+    editBtn.disabled = !allowed;
+  }
   document.getElementById('btnMilestones').style.display='none';
   document.getElementById('fabMacro').classList.remove('active');
   document.getElementById('fabIssues').classList.remove('active');
@@ -939,6 +952,10 @@ window.enterDrill = function(msId) {
 };
 
 window.exitDrill = function() { switchView('macro'); };
+window.editDrillMilestone = function() {
+  if (!drillMsId || !canEditMilestones(userProfile)) return;
+  openMsFormModal(drillMsId);
+};
 
 /* ─── API ─────────────────────────────────────────────────────────────────── */
 function setApiStatus(msg, cls) {
@@ -1358,6 +1375,12 @@ function buildBarHTML(start, end, status, pct, tl, isOverdue) {
   `;
 }
 
+function buildIssueLabelsHTML(issue) {
+  const labels = Array.isArray(issue.labels) ? issue.labels.filter(Boolean) : [];
+  if (!labels.length) return '';
+  return labels.map(label => `<span class="label-chip">${esc(label)}</span>`).join('');
+}
+
 function renderRows(issues) {
   const body = document.getElementById('ganttBody');
   if (!issues.length) {
@@ -1376,13 +1399,14 @@ function renderRows(issues) {
     const msBadgeHtml = linkedMs
       ? `<span class="issue-ms-tag" style="background:${linkedMs.color||'var(--blue)'}20;color:${linkedMs.color||'var(--blue)'};">${esc(linkedMs.name)}</span>`
       : '';
+    const issueLabelsHtml = buildIssueLabelsHTML(issue);
     return `<tr data-iid="${issue.iid}">
       <td><span class="iid">#${issue.iid}</span></td>
       <td>
         ${issue.url
           ? `<a class="issue-link" href="${esc(issue.url)}" target="_blank">${esc(issue.title)}</a>`
           : `<span>${esc(issue.title)}</span>`}
-        ${msBadgeHtml}
+        ${(msBadgeHtml || issueLabelsHtml) ? `<div class="issue-meta-tags">${msBadgeHtml}${issueLabelsHtml}</div>` : ''}
       </td>
       <td class="date-cell">${fmtBR(issue.start)}</td>
       <td class="date-cell ${isOverdue?'overdue':''}">${fmtBR(issue.end)}</td>
@@ -1940,6 +1964,7 @@ window.openMsModal = function() {
   document.getElementById('msModalBackdrop').style.display='';
 };
 window.openMsFormModal = function(id) {
+  if (!canEditMilestones(userProfile)) return;
   clearMsSaveFeedback();
   if (id) {
     const ms=internalMilestones.find(m=>m.id===id); if(!ms) return;
@@ -2055,6 +2080,7 @@ window.saveMilestone = async function() {
   if (!end)       { alert('Informe a data de fim.'); return; }
   if (end<start)  { alert('A data de fim não pode ser anterior ao início.'); return; }
   const issueIids = [...selectedIssueIids];
+  const savedMsId = editingMsId || `ms_${Date.now()}`;
   if (editingMsId) {
     const idx = internalMilestones.findIndex(m=>m.id===editingMsId);
     if (idx!==-1) {
@@ -2063,16 +2089,15 @@ window.saveMilestone = async function() {
       }, issueIids);
     }
   } else {
-    const id='ms_'+Date.now();
     internalMilestones.push(mergeMilestoneIssueSnapshots({
-      id, name, start, end, color, status, history, projectId: activeProjectId
+      id: savedMsId, name, start, end, color, status, history, projectId: activeProjectId
     }, issueIids));
   }
   // Atualiza flag projectId + internalMilestoneId nas issues vinculadas
   issueIids.forEach(iid => {
     if (!progress[iid]) progress[iid]={pct:0,status:'Andamento'};
     progress[iid].projectId          = activeProjectId;
-    progress[iid].internalMilestoneId= editingMsId || internalMilestones[internalMilestones.length-1]?.id;
+    progress[iid].internalMilestoneId= savedMsId;
     if (!progress[iid].updatedAt) progress[iid].updatedAt=new Date().toISOString();
   });
   try {
@@ -2084,6 +2109,7 @@ window.saveMilestone = async function() {
     closeMsFormModal(); clearMsForm(); renderMsList();
     setDefaultMacroFilters();
     if (currentView==='macro') renderMacro();
+    if (currentView==='drill' && drillMsId === savedMsId) enterDrill(savedMsId);
     showMsSaveFeedback('Milestone salva.');
   } catch(e) {
     console.error('Erro ao salvar milestone:', e);
