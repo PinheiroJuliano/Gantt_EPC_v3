@@ -24,7 +24,8 @@
             <nav class="breadcrumb" id="breadcrumb" style="display:none">
                 <button class="breadcrumb-back" onclick="exitDrill()">← Voltar</button>
                 <span class="breadcrumb-sep">/</span>
-                <span class="breadcrumb-current" id="breadcrumbLabel">—</span>
+                <select class="breadcrumb-current breadcrumb-select" id="breadcrumbMilestoneSelect"
+                    onchange="changeDrillMilestone(this.value)" title="Alternar milestone"></select>
                 <button class="btn breadcrumb-edit" id="btnEditDrillMilestone" onclick="editDrillMilestone()" style="display:none">✎ Editar</button>
             </nav>
         </div>

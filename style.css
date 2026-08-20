@@ -660,6 +660,17 @@ input[type="text"], input[type="password"], input[type="date"], select {
   font-size: 12px; font-weight: 600; color: var(--text);
   max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.breadcrumb-select {
+  min-width: 180px;
+  height: 28px;
+  padding: 3px 28px 3px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  cursor: pointer;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+.breadcrumb-select:hover { background: var(--bg3); }
 .breadcrumb-edit {
   padding: 3px 10px;
   font-size: 11px;

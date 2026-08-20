@@ -766,6 +766,55 @@ function syncMilestoneIssueSnapshots() {
   return changed;
 }
 
+function applyLoadedIssues(raw, ignoredLabels = ['Ready', 'Specification']) {
+  allIssues = raw.map(mapIssue).filter(i => !i.labels.some(l => ignoredLabels.includes(l)));
+  allIssues.sort((a,b) =>
+    (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
+    (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
+  );
+}
+
+function applyIssueDefaultsFromApi() {
+  let needsSync = false;
+  allIssues.forEach(issue => {
+    if (issue.apiStatus === 'Concluída') {
+      if (!progress[issue.iid] ||
+          progress[issue.iid].status !== 'Concluída' ||
+          progress[issue.iid].pct    !== 100) {
+        progress[issue.iid] = {
+          ...progress[issue.iid],
+          pct: 100, status: 'Concluída',
+          projectId: activeProjectId,
+          updatedAt: new Date().toISOString(),
+        };
+        needsSync = true;
+      }
+    } else if (hasIssueLabel(issue, 'Validation') && (!progress[issue.iid] || (progress[issue.iid].pct ?? 0) < 80)) {
+      progress[issue.iid] = {
+        ...progress[issue.iid],
+        pct: 80,
+        status: progress[issue.iid]?.status || issue.apiStatus,
+        projectId: activeProjectId,
+        updatedAt: new Date().toISOString(),
+      };
+      needsSync = true;
+    } else if (!progress[issue.iid]) {
+      progress[issue.iid] = {
+        pct: issue.apiProgress, status: issue.apiStatus,
+        projectId: activeProjectId,
+        updatedAt: new Date().toISOString(),
+      };
+      needsSync = true;
+    } else if (!progress[issue.iid].status) {
+      progress[issue.iid].status    = issue.apiStatus;
+      progress[issue.iid].projectId = activeProjectId;
+      needsSync = true;
+    }
+  });
+  if (needsSync) saveProgress();
+  return needsSync;
+}
+
 /* ─── CLOUD STORE ─────────────────────────────────────────────────────────── */
 async function loadIssuesFromCentralCache() {
   if (!db) return false;
@@ -828,7 +877,8 @@ async function loadCentralData() {
   } catch(e) { console.error('Erro ao carregar JSONBin:', e); }
 }
 
-async function saveToCentralData() {
+async function saveToCentralData(options = {}) {
+  const { includeIssues = false } = options;
   if (db) {
     try {
       const payload = {
@@ -837,7 +887,7 @@ async function saveToCentralData() {
         projectId: activeProjectId,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
-      if (allIssues.length > 0) {
+      if (includeIssues && allIssues.length > 0) {
         syncMilestoneIssueSnapshots();
         payload.issues         = allIssues;
         issuesSyncedAt         = new Date().toISOString();
@@ -875,7 +925,6 @@ async function switchProject(projectId) {
   if (proj) {
     initFirebase(proj.firebaseConfig || null);
     await loadCentralData();
-    loadFromAPI();
   }
 
   updateProjectBadge();
@@ -937,7 +986,7 @@ window.enterDrill = function(msId) {
   document.getElementById('issueToolbar').style.display='';
   document.getElementById('sprintHistory').style.display='';
   document.getElementById('breadcrumb').style.display='flex';
-  document.getElementById('breadcrumbLabel').textContent = ms.name;
+  renderDrillMilestoneSelect(msId);
   const editBtn = document.getElementById('btnEditDrillMilestone');
   if (editBtn) {
     const allowed = canEditMilestones(userProfile);
@@ -955,6 +1004,23 @@ window.exitDrill = function() { switchView('macro'); };
 window.editDrillMilestone = function() {
   if (!drillMsId || !canEditMilestones(userProfile)) return;
   openMsFormModal(drillMsId);
+};
+function renderDrillMilestoneSelect(selectedId = drillMsId) {
+  const select = document.getElementById('breadcrumbMilestoneSelect');
+  if (!select) return;
+  const sorted = [...internalMilestones].sort((a,b) =>
+    (b.start || '').localeCompare(a.start || '') ||
+    (b.end || '').localeCompare(a.end || '') ||
+    (a.name || '').localeCompare(b.name || '')
+  );
+  select.innerHTML = sorted.map(ms =>
+    `<option value="${esc(ms.id)}" ${ms.id === selectedId ? 'selected' : ''}>${esc(ms.name)}</option>`
+  ).join('');
+  select.value = selectedId || '';
+}
+window.changeDrillMilestone = function(msId) {
+  if (!msId || msId === drillMsId) return;
+  enterDrill(msId);
 };
 
 /* ─── API ─────────────────────────────────────────────────────────────────── */
@@ -1054,11 +1120,7 @@ async function loadFromAPI() {
     const raw = await fetchAllPages(
       `${cfg.url}/api/v4/groups/${cfg.group}/issues?${params.toString()}`, cfg.token
     );
-    allIssues = raw.map(mapIssue).filter(i => !i.labels.some(l => ignoredLabels.includes(l)));
-    allIssues.sort((a,b) =>
-      (a.end||'9999-12-31').localeCompare(b.end||'9999-12-31') ||
-      (a.start||'9999-12-31').localeCompare(b.start||'9999-12-31')
-    );
+    applyLoadedIssues(raw, ignoredLabels);
 
     document.getElementById('msBadge').textContent =
       (getActiveProject()?.name || cfg.milestone || 'Todas');
@@ -1066,46 +1128,8 @@ async function loadFromAPI() {
     setApiStatus(`${lastIssueLoadPartial ? '⚠ Parcial:' : '✅'} ${allIssues.length} issues`, lastIssueLoadPartial ? 'warn' : 'ok');
     resetIssueFilters();
 
-    let needsSync = false;
-    allIssues.forEach(issue => {
-      if (issue.apiStatus === 'Concluída') {
-        if (!progress[issue.iid] ||
-            progress[issue.iid].status !== 'Concluída' ||
-            progress[issue.iid].pct    !== 100) {
-          progress[issue.iid] = {
-            ...progress[issue.iid],
-            pct: 100, status: 'Concluída',
-            projectId: activeProjectId,
-            updatedAt: new Date().toISOString(),
-          };
-          needsSync = true;
-        }
-      } else if (hasIssueLabel(issue, 'Validation') && (!progress[issue.iid] || (progress[issue.iid].pct ?? 0) < 80)) {
-        progress[issue.iid] = {
-          ...progress[issue.iid],
-          pct: 80,
-          status: progress[issue.iid]?.status || issue.apiStatus,
-          projectId: activeProjectId,
-          updatedAt: new Date().toISOString(),
-        };
-        needsSync = true;
-      } else {
-        if (!progress[issue.iid]) {
-          progress[issue.iid] = {
-            pct: issue.apiProgress, status: issue.apiStatus,
-            projectId: activeProjectId,
-            updatedAt: new Date().toISOString(),
-          };
-          needsSync = true;
-        } else if (!progress[issue.iid].status) {
-          progress[issue.iid].status    = issue.apiStatus;
-          progress[issue.iid].projectId = activeProjectId;
-          needsSync = true;
-        }
-      }
-    });
-    if (needsSync) saveProgress();
-    await saveToCentralData();
+    applyIssueDefaultsFromApi();
+    await saveToCentralData({ includeIssues: true });
 
     if (document.getElementById('msFormModal').style.display !== 'none') populateIssuePicker();
     render();
@@ -2424,12 +2448,9 @@ async function loadExternalIssues(cfg) {
     const raw = await fetchAllPages(
       `${cfg.url}/api/v4/groups/${cfg.group}/issues?${params.toString()}`, cfg.token
     );
-    allIssues = raw.map(mapIssue).filter(i => !i.labels.some(l => ignoredLabels.includes(l)));
-    allIssues.sort((a,b) =>
-      (a.end || '9999-12-31').localeCompare(b.end || '9999-12-31') ||
-      (a.start || '9999-12-31').localeCompare(b.start || '9999-12-31')
-    );
-    await saveToCentralData();
+    applyLoadedIssues(raw, ignoredLabels);
+    applyIssueDefaultsFromApi();
+    await saveToCentralData({ includeIssues: true });
     setExternalStatus(`${lastIssueLoadPartial ? 'Parcial: ' : ''}${allIssues.length} issues carregadas`);
   } catch(e) {
     console.error('Erro ao carregar visão externa do GitLab:', e);
