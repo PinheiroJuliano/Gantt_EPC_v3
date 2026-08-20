@@ -1012,10 +1012,15 @@ function inferStatus(issue) {
   if (labels.some(l => ['aguardando','waiting','pendente'].includes(l))) return 'Aguardando';
   return 'Andamento';
 }
+function hasIssueLabel(issue, labelName) {
+  const expected = String(labelName || '').toLowerCase();
+  return (issue.labels || []).some(label => String(label).toLowerCase() === expected);
+}
 function inferProgress(issue) {
   const desc   = issue.description || '';
   const labels = (issue.labels || []).map(l => l.toLowerCase());
   if (labels.includes('done')) return 100;
+  if (labels.includes('validation')) return 80;
   const done  = (desc.match(/-\s*\[x\]/gi) || []).length;
   const total = (desc.match(/-\s*\[[ x]\]/gi) || []).length;
   if (total > 0) return Math.round(done / total * 100);
@@ -1075,6 +1080,15 @@ async function loadFromAPI() {
           };
           needsSync = true;
         }
+      } else if (hasIssueLabel(issue, 'Validation') && (!progress[issue.iid] || (progress[issue.iid].pct ?? 0) < 80)) {
+        progress[issue.iid] = {
+          ...progress[issue.iid],
+          pct: 80,
+          status: progress[issue.iid]?.status || issue.apiStatus,
+          projectId: activeProjectId,
+          updatedAt: new Date().toISOString(),
+        };
+        needsSync = true;
       } else {
         if (!progress[issue.iid]) {
           progress[issue.iid] = {
